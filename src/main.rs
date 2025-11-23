@@ -1,12 +1,66 @@
 use eframe::egui;
 use egui_phosphor::regular;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::Disks;
+
+mod i18n;
+use i18n::{Language, Translations};
+
+// Встраиваем SVG иконки
+const ICON_FOLDER: &[u8] = include_bytes!("icons/folder.svg");
+const ICON_FILE: &[u8] = include_bytes!("icons/file.svg");
+const ICON_SEARCH: &[u8] = include_bytes!("icons/search.svg");
+const ICON_STOP: &[u8] = include_bytes!("icons/stop.svg");
+const ICON_CPU: &[u8] = include_bytes!("icons/cpu.svg");
+
+// Функция для загрузки SVG как текстуры
+fn load_svg_as_texture(
+    ctx: &egui::Context,
+    svg_data: &[u8],
+    name: &str,
+    size: u32,
+) -> egui::TextureHandle {
+    // Парсим SVG
+    let opt = usvg::Options::default();
+    let tree = usvg::Tree::from_data(svg_data, &opt).expect("Failed to parse SVG");
+    
+    // Получаем размеры SVG
+    let svg_size = tree.size();
+    
+    // Вычисляем масштаб чтобы SVG вписался в нужный размер
+    let scale_x = size as f32 / svg_size.width();
+    let scale_y = size as f32 / svg_size.height();
+    let scale = scale_x.min(scale_y); // Используем минимальный масштаб чтобы сохранить пропорции
+    
+    // Создаём pixmap для рендеринга
+    let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("Failed to create pixmap");
+    
+    // Создаём трансформацию для масштабирования
+    let transform = tiny_skia::Transform::from_scale(scale, scale);
+    
+    // Рендерим SVG с масштабированием
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    
+    // Конвертируем в ColorImage для egui
+    let image_buffer = image::RgbaImage::from_raw(
+        size,
+        size,
+        pixmap.data().to_vec(),
+    ).expect("Failed to create image");
+    
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [size as usize, size as usize],
+        &image_buffer,
+    );
+    
+    ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR)
+}
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -45,7 +99,7 @@ fn main() -> Result<(), eframe::Error> {
             
             cc.egui_ctx.set_style(style);
             
-            Ok(Box::new(BaobabApp::default()))
+            Ok(Box::new(BaobabApp::new(cc)))
         }),
     )
 }
@@ -120,6 +174,23 @@ struct DriveInfo {
     kind: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct AppConfig {
+    dark_mode: bool,
+    language: Language,
+    last_path: Option<String>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            dark_mode: i18n::detect_system_theme(),
+            language: i18n::detect_system_language(),
+            last_path: None,
+        }
+    }
+}
+
 struct BaobabApp {
     root_node: Option<DirNode>,
     selected_path: Option<PathBuf>,
@@ -132,16 +203,34 @@ struct BaobabApp {
     last_scan_duration: Option<Duration>,
     last_scan_size: u64,
     scan_speed_mbps: f64,
-    dark_mode: bool,
+    config: AppConfig,
+    translations: Translations,
     show_about_window: bool,
     show_delete_confirm: bool,
     path_to_delete: Option<PathBuf>,
     status_message: Option<String>,
     status_message_time: Option<Instant>,
+    // SVG иконки
+    icon_folder: egui::TextureHandle,
+    icon_file: egui::TextureHandle,
+    icon_search: egui::TextureHandle,
+    icon_stop: egui::TextureHandle,
+    icon_cpu: egui::TextureHandle,
 }
 
-impl Default for BaobabApp {
-    fn default() -> Self {
+impl BaobabApp {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Загружаем конфигурацию из хранилища
+        let config: AppConfig = if let Some(storage) = cc.storage {
+            storage.get_string("config")
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        } else {
+            AppConfig::default()
+        };
+        
+        let translations = Translations::load(config.language);
+        
         let mut drives = Vec::new();
         let disks = Disks::new_with_refreshed_list();
         
@@ -155,11 +244,18 @@ impl Default for BaobabApp {
             }
         }
         
-        let default_path = if !drives.is_empty() { 
-            drives[0].path.clone()
-        } else { 
-            String::from("C:\\") 
-        };
+        let default_path = config
+            .last_path
+            .clone()
+            .or_else(|| drives.first().map(|d| d.path.clone()))
+            .unwrap_or_else(|| String::from("C:\\"));
+        
+        // Загружаем SVG иконки как текстуры
+        let icon_folder = load_svg_as_texture(&cc.egui_ctx, ICON_FOLDER, "icon_folder", 20);
+        let icon_file = load_svg_as_texture(&cc.egui_ctx, ICON_FILE, "icon_file", 20);
+        let icon_search = load_svg_as_texture(&cc.egui_ctx, ICON_SEARCH, "icon_search", 20);
+        let icon_stop = load_svg_as_texture(&cc.egui_ctx, ICON_STOP, "icon_stop", 20);
+        let icon_cpu = load_svg_as_texture(&cc.egui_ctx, ICON_CPU, "icon_cpu", 20);
         
         Self {
             root_node: None,
@@ -173,13 +269,24 @@ impl Default for BaobabApp {
             last_scan_duration: None,
             last_scan_size: 0,
             scan_speed_mbps: 0.0,
-            dark_mode: true,
+            config,
+            translations,
             show_about_window: false,
             show_delete_confirm: false,
             path_to_delete: None,
             status_message: None,
             status_message_time: None,
+            icon_folder,
+            icon_file,
+            icon_search,
+            icon_stop,
+            icon_cpu,
         }
+    }
+    
+    fn set_language(&mut self, lang: Language) {
+        self.config.language = lang;
+        self.translations = Translations::load(lang);
     }
 }
 
@@ -305,6 +412,8 @@ fn render_tree_node_static(
     depth: usize,
     selected_path: &mut Option<PathBuf>,
     path_to_delete: &mut Option<PathBuf>,
+    icon_folder: &egui::TextureHandle,
+    icon_file: &egui::TextureHandle,
 ) {
     let indent = depth as f32 * 24.0; // Увеличили отступ для лучшей читаемости
     
@@ -327,14 +436,18 @@ fn render_tree_node_static(
         }
         
         // Иконка: всегда папка для папок, файл для файлов
-        let icon = if node.is_file { 
-            regular::FILE_TEXT 
+        let icon_texture = if node.is_file { 
+            icon_file
         } else { 
-            regular::FOLDER 
+            icon_folder
         };
         
         let size_str = format_size(node.size);
-        let label = format!("{} {} - {}", icon, node.name, size_str);
+        
+        // Отображаем иконку как изображение с фиксированным размером
+        ui.add(egui::Image::new(icon_texture).max_size(egui::vec2(16.0, 16.0)));
+        
+        let label = format!("{} - {}", node.name, size_str);
         
         let response = ui.selectable_label(
             selected_path.as_ref() == Some(&node.path),
@@ -379,7 +492,7 @@ fn render_tree_node_static(
         
         // Показываем только первые MAX_VISIBLE_CHILDREN элементов
         for child in node.children.iter_mut().take(MAX_VISIBLE_CHILDREN) {
-            render_tree_node_static(ui, child, depth + 1, selected_path, path_to_delete);
+            render_tree_node_static(ui, child, depth + 1, selected_path, path_to_delete, icon_folder, icon_file);
         }
         
         // Если элементов больше, показываем индикатор
@@ -401,9 +514,19 @@ fn render_tree_node_static(
 }
 
 impl eframe::App for BaobabApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // Сохраняем последний путь
+        self.config.last_path = Some(self.scan_path.clone());
+        
+        // Сохраняем конфигурацию
+        if let Ok(json) = serde_json::to_string(&self.config) {
+            storage.set_string("config", json);
+        }
+    }
+    
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Применяем тему
-        if self.dark_mode {
+        if self.config.dark_mode {
             ctx.set_visuals(egui::Visuals::dark());
         } else {
             ctx.set_visuals(egui::Visuals::light());
@@ -412,34 +535,78 @@ impl eframe::App for BaobabApp {
         // Меню-бар
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button(format!("{} Меню", regular::LIST), |ui| {
-                    if ui.button(if self.dark_mode { 
-                        format!("{} Светлая тема", regular::SUN) 
+                let menu_text = self.translations.get("menu");
+                let app_title = self.translations.get("app_title");
+                let light_theme_text = self.translations.get("light_theme");
+                let dark_theme_text = self.translations.get("dark_theme");
+                let language_text = self.translations.get("language");
+                let about_text = self.translations.get("about");
+                let current_lang = self.config.language;
+                let is_dark = self.config.dark_mode;
+                
+                ui.menu_button(format!("{} {}", regular::LIST, menu_text), |ui| {
+                    // Выбор темы
+                    if ui.button(if is_dark { 
+                        format!("{} {}", regular::SUN, light_theme_text)
                     } else { 
-                        format!("{} Тёмная тема", regular::MOON_STARS) 
+                        format!("{} {}", regular::MOON_STARS, dark_theme_text)
                     }).clicked() {
-                        self.dark_mode = !self.dark_mode;
+                        self.config.dark_mode = !self.config.dark_mode;
                         ui.close_menu();
                     }
                     
                     ui.separator();
                     
-                    if ui.button(format!("{} О программе", regular::INFO)).clicked() {
+                    // Выбор языка
+                    ui.menu_button(format!("{} {}", regular::TRANSLATE, language_text), |ui| {
+                        for lang in Language::all() {
+                            if ui.selectable_label(
+                                current_lang == lang,
+                                lang.name()
+                            ).clicked() {
+                                self.set_language(lang);
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    
+                    ui.separator();
+                    
+                    if ui.button(format!("{} {}", regular::INFO, about_text)).clicked() {
                         self.show_about_window = true;
                         ui.close_menu();
                     }
                 });
                 
                 ui.separator();
-                ui.heading(format!("{} Baobab-RS - Disk Usage Analyzer", regular::TREE_STRUCTURE));
+                ui.heading(app_title);
             });
         });
+        
+        // Копируем все необходимые переводы до использования в замыканиях
+        let path_label = self.translations.get("path");
+        let browse_label = self.translations.get("browse");
+        let scan_label = self.translations.get("scan");
+        let stop_label = self.translations.get("stop");
+        let files_label = self.translations.get("files");
+        let dirs_label = self.translations.get("directories");
+        let scanned_label = self.translations.get("scanned");
+        let disk_label = self.translations.get("disk");
+        let type_label = self.translations.get("type");
+        let threads_label = self.translations.get("threads");
+        let scanning_label = self.translations.get("scanning_label");
+        let calculating_label = self.translations.get("calculating");
+        let select_path_label = self.translations.get("select_path");
+        let available_drives_label = self.translations.get("available_drives");
+        let selected_label = self.translations.get("selected");
+        let no_selection_label = self.translations.get("no_selection");
+        let total_size_label = self.translations.get("total_size");
         
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(5.0);
             
             ui.horizontal(|ui| {
-                ui.label("Path:");
+                ui.label(&path_label);
                 
                 // Находим текущий диск для отображения
                 let current_display = self.available_drives
@@ -463,29 +630,31 @@ impl eframe::App for BaobabApp {
                 
                 ui.text_edit_singleline(&mut self.scan_path);
                 
-                if ui.button(format!("{} Browse", regular::FOLDER_OPEN)).clicked() {
+                if ui.button(format!("{} {}", regular::FOLDER_OPEN, &browse_label)).clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.scan_path = path.display().to_string();
                     }
                 }
                 
-                let scan_button = ui.add_enabled(
-                    !self.is_scanning,
-                    egui::Button::new(format!("{} Scan", regular::MAGNIFYING_GLASS)),
-                );
+                // Кнопка сканирования с SVG иконкой
+                ui.add_enabled_ui(!self.is_scanning, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::new(&self.icon_search).max_size(egui::vec2(16.0, 16.0)));
+                        if ui.button(&scan_label).clicked() {
+                            self.start_scan(self.scan_path.clone());
+                        }
+                    });
+                });
                 
-                if scan_button.clicked() {
-                    self.start_scan(self.scan_path.clone());
-                }
-                
-                let stop_button = ui.add_enabled(
-                    self.is_scanning,
-                    egui::Button::new(format!("{} Stop", regular::STOP)),
-                );
-                
-                if stop_button.clicked() {
-                    self.stop_scan();
-                }
+                // Кнопка остановки с SVG иконкой
+                ui.add_enabled_ui(self.is_scanning, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Image::new(&self.icon_stop).max_size(egui::vec2(16.0, 16.0)));
+                        if ui.button(&stop_label).clicked() {
+                            self.stop_scan();
+                        }
+                    });
+                });
             });
             
             if self.is_scanning {
@@ -499,29 +668,30 @@ impl eframe::App for BaobabApp {
                     
                     // Progress details
                     ui.horizontal(|ui| {
-                        ui.label(format!("{} Files: {}", regular::FILE, progress.files_scanned));
+                        ui.label(format!("{} {}: {}", regular::FILE, &files_label, progress.files_scanned));
                         ui.separator();
-                        ui.label(format!("{} Directories: {}", regular::FOLDER, progress.dirs_scanned));
+                        ui.label(format!("{} {}: {}", regular::FOLDER, &dirs_label, progress.dirs_scanned));
                         ui.separator();
-                        ui.label(format!("{} Scanned: {}", regular::HARD_DRIVE, format_size(progress.total_size)));
+                        ui.label(format!("{} {}: {}", regular::HARD_DRIVE, &scanned_label, format_size(progress.total_size)));
                     });
                     
                     ui.horizontal(|ui| {
                         if progress.disk_size > 0 {
-                            ui.label(format!("{} Disk: {}", regular::DATABASE, format_size(progress.disk_size)));
+                            ui.label(format!("{} {}: {}", regular::DATABASE, &disk_label, format_size(progress.disk_size)));
                             ui.separator();
                         }
                         if !progress.disk_type.is_empty() {
-                            ui.label(format!("{} Type: {}", regular::DISC, progress.disk_type));
+                            ui.label(format!("{} {}: {}", regular::DISC, &type_label, progress.disk_type));
                             ui.separator();
                         }
-                        ui.label(format!("{} Threads: {}", regular::CPU, progress.thread_count));
+                        ui.add(egui::Image::new(&self.icon_cpu).max_size(egui::vec2(16.0, 16.0)));
+                        ui.label(format!("{}: {}", &threads_label, progress.thread_count));
                     });
                     
                     // Current path
                     if !progress.current_path.is_empty() {
                         ui.horizontal(|ui| {
-                            ui.label("📂 Scanning:");
+                            ui.label(format!("{} {}:", regular::FOLDER, &scanning_label));
                             ui.label(&progress.current_path);
                         });
                     }
@@ -537,7 +707,7 @@ impl eframe::App for BaobabApp {
                     let progress_text = if progress.disk_size > 0 {
                         format!("{:.1}%", progress_value * 100.0)
                     } else {
-                        "Calculating...".to_string()
+                        calculating_label.clone()
                     };
                     
                     ui.add(
@@ -557,15 +727,15 @@ impl eframe::App for BaobabApp {
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         if let Some(root) = &mut self.root_node {
-                            render_tree_node_static(ui, root, 0, &mut self.selected_path, &mut self.path_to_delete);
+                            render_tree_node_static(ui, root, 0, &mut self.selected_path, &mut self.path_to_delete, &self.icon_folder, &self.icon_file);
                         }
                     });
             } else if !self.is_scanning {
                 ui.vertical_centered(|ui| {
                     ui.add_space(200.0);
-                    ui.heading(format!("{} Select a path and click 'Scan' to begin", regular::HAND_POINTING));
+                    ui.heading(format!("{} {}", regular::HAND_POINTING, &select_path_label));
                     ui.add_space(20.0);
-                    ui.label("Available drives:");
+                    ui.label(&available_drives_label);
                     for drive in &self.available_drives {
                         ui.label(format!("  {} {} - {} [{}]", 
                             regular::HARD_DRIVE,
@@ -585,9 +755,9 @@ impl eframe::App for BaobabApp {
                 if let Some(status) = &self.status_message {
                     ui.label(status);
                 } else if let Some(path) = &self.selected_path {
-                    ui.label(format!("Selected: {}", path.display()));
+                    ui.label(format!("{}: {}", &selected_label, path.display()));
                 } else {
-                    ui.label("No selection");
+                    ui.label(&no_selection_label);
                 }
                 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -637,7 +807,7 @@ impl eframe::App for BaobabApp {
                     
                     if let Some(root) = &self.root_node {
                         ui.separator();
-                        ui.label(format!("💾 {}", format_size(root.size)));
+                        ui.label(format!("{}: {}", &total_size_label, format_size(root.size)));
                     }
                 });
             });
