@@ -18,7 +18,29 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Baobab-RS",
         options,
-        Box::new(|_cc| Ok(Box::new(BaobabApp::default()))),
+        Box::new(|cc| {
+            // Настройка стиля для увеличения размеров элементов
+            let mut style = (*cc.egui_ctx.style()).clone();
+            
+            // Увеличиваем размер текста
+            style.text_styles = [
+                (egui::TextStyle::Small, egui::FontId::new(12.0, egui::FontFamily::Proportional)),
+                (egui::TextStyle::Body, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+                (egui::TextStyle::Button, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+                (egui::TextStyle::Heading, egui::FontId::new(20.0, egui::FontFamily::Proportional)),
+                (egui::TextStyle::Monospace, egui::FontId::new(14.0, egui::FontFamily::Monospace)),
+            ].into();
+            
+            // Увеличиваем отступы и размеры элементов
+            style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+            style.spacing.indent = 20.0;
+            style.spacing.interact_size = egui::vec2(50.0, 24.0);
+            
+            cc.egui_ctx.set_style(style);
+            
+            Ok(Box::new(BaobabApp::default()))
+        }),
     )
 }
 
@@ -29,16 +51,18 @@ struct DirNode {
     size: u64,
     children: Vec<DirNode>,
     is_expanded: bool,
+    is_file: bool,  // true если это файл, false если папка
 }
 
 impl DirNode {
-    fn new(path: PathBuf, name: String, size: u64) -> Self {
+    fn new(path: PathBuf, name: String, size: u64, is_file: bool) -> Self {
         Self {
             path,
             name,
             size,
             children: Vec::new(),
             is_expanded: false,
+            is_file,
         }
     }
 
@@ -104,6 +128,10 @@ struct BaobabApp {
     scan_speed_mbps: f64,
     dark_mode: bool,
     show_about_window: bool,
+    show_delete_confirm: bool,
+    path_to_delete: Option<PathBuf>,
+    status_message: Option<String>,
+    status_message_time: Option<Instant>,
 }
 
 impl Default for BaobabApp {
@@ -141,11 +169,45 @@ impl Default for BaobabApp {
             scan_speed_mbps: 0.0,
             dark_mode: true,
             show_about_window: false,
+            show_delete_confirm: false,
+            path_to_delete: None,
+            status_message: None,
+            status_message_time: None,
         }
     }
 }
 
 impl BaobabApp {
+    fn remove_from_tree(&mut self, path: &PathBuf) {
+        fn remove_recursive(node: &mut DirNode, path: &PathBuf) -> bool {
+            // Удаляем из детей
+            node.children.retain(|child| &child.path != path);
+            
+            // Рекурсивно проверяем детей
+            for child in &mut node.children {
+                if remove_recursive(child, path) {
+                    return true;
+                }
+            }
+            
+            false
+        }
+        
+        if let Some(root) = &mut self.root_node {
+            // Проверяем, не удаляем ли корневую папку
+            if &root.path == path {
+                self.root_node = None;
+                self.selected_path = None;
+            } else {
+                remove_recursive(root, path);
+                // Если удалённый элемент был выбран, снимаем выделение
+                if self.selected_path.as_ref() == Some(path) {
+                    self.selected_path = None;
+                }
+            }
+        }
+    }
+    
     fn start_scan(&mut self, path: String) {
         self.is_scanning = true;
         self.root_node = None;
@@ -236,26 +298,30 @@ fn render_tree_node_static(
     node: &mut DirNode,
     depth: usize,
     selected_path: &mut Option<PathBuf>,
+    path_to_delete: &mut Option<PathBuf>,
 ) {
-    let indent = depth as f32 * 20.0;
+    let indent = depth as f32 * 24.0; // Увеличили отступ для лучшей читаемости
     
     ui.horizontal(|ui| {
         ui.add_space(indent);
         
         let has_children = !node.children.is_empty();
         
-        if has_children {
+        // Кнопка раскрытия только для папок с детьми
+        if !node.is_file && has_children {
             // Используем простые + и - которые работают везде
-            let icon = if node.is_expanded { "−" } else { "+" };
+            let expand_icon = if node.is_expanded { "−" } else { "+" };
             
-            if ui.small_button(icon).clicked() {
+            // Обычная кнопка вместо small_button для большего размера
+            if ui.button(expand_icon).clicked() {
                 node.is_expanded = !node.is_expanded;
             }
         } else {
-            ui.add_space(20.0);
+            ui.add_space(24.0);
         }
         
-        let icon = if has_children { "📁" } else { "📄" };
+        // Иконка: всегда 📁 для папок, 📄 для файлов
+        let icon = if node.is_file { "📄" } else { "📁" };
         
         let size_str = format_size(node.size);
         let label = format!("{} {} - {}", icon, node.name, size_str);
@@ -271,9 +337,29 @@ fn render_tree_node_static(
         }
         
         // Двойной клик - раскрытие/свёртывание (только для папок с детьми)
-        if has_children && response.double_clicked() {
+        if !node.is_file && has_children && response.double_clicked() {
             node.is_expanded = !node.is_expanded;
         }
+        
+        // Контекстное меню (правый клик)
+        response.context_menu(|ui| {
+            if ui.button("🗑 Удалить в корзину").clicked() {
+                *path_to_delete = Some(node.path.clone());
+                ui.close_menu();
+            }
+            
+            if ui.button("📂 Открыть в проводнике").clicked() {
+                if let Err(e) = open::that(&node.path) {
+                    eprintln!("Failed to open path: {}", e);
+                }
+                ui.close_menu();
+            }
+            
+            if ui.button("📋 Копировать путь").clicked() {
+                ui.output_mut(|o| o.copied_text = node.path.display().to_string());
+                ui.close_menu();
+            }
+        });
         
         response.on_hover_text(node.path.display().to_string());
     });
@@ -283,7 +369,7 @@ fn render_tree_node_static(
         
         // Показываем только первые MAX_VISIBLE_CHILDREN элементов
         for child in node.children.iter_mut().take(MAX_VISIBLE_CHILDREN) {
-            render_tree_node_static(ui, child, depth + 1, selected_path);
+            render_tree_node_static(ui, child, depth + 1, selected_path, path_to_delete);
         }
         
         // Если элементов больше, показываем индикатор
@@ -453,13 +539,11 @@ impl eframe::App for BaobabApp {
         
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.root_node.is_some() {
-                let selected_path = self.selected_path.clone();
-                
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         if let Some(root) = &mut self.root_node {
-                            render_tree_node_static(ui, root, 0, &mut self.selected_path);
+                            render_tree_node_static(ui, root, 0, &mut self.selected_path, &mut self.path_to_delete);
                         }
                     });
             } else if !self.is_scanning {
@@ -482,7 +566,10 @@ impl eframe::App for BaobabApp {
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.separator();
             ui.horizontal(|ui| {
-                if let Some(path) = &self.selected_path {
+                // Показываем статусное сообщение или выбранный путь
+                if let Some(status) = &self.status_message {
+                    ui.label(status);
+                } else if let Some(path) = &self.selected_path {
                     ui.label(format!("Selected: {}", path.display()));
                 } else {
                     ui.label("No selection");
@@ -592,6 +679,84 @@ impl eframe::App for BaobabApp {
             ctx.request_repaint();
         }
         
+        // Проверяем, нужно ли показать диалог удаления
+        if self.path_to_delete.is_some() && !self.show_delete_confirm {
+            self.show_delete_confirm = true;
+        }
+        
+        // Диалог подтверждения удаления
+        if self.show_delete_confirm {
+            if let Some(path) = self.path_to_delete.clone() {
+                let path_display = path.display().to_string();
+                
+                let mut delete_confirmed = false;
+                let mut cancelled = false;
+                
+                egui::Window::new("⚠ Подтверждение удаления")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.vertical(|ui| {
+                            ui.add_space(10.0);
+                            
+                            ui.label("Вы действительно хотите удалить в корзину:");
+                            ui.add_space(5.0);
+                            ui.label(egui::RichText::new(&path_display).strong());
+                            ui.add_space(10.0);
+                            
+                            ui.label("⚠ Элемент будет перемещён в корзину Windows.");
+                            ui.label("Вы сможете восстановить его из корзины.");
+                            
+                            ui.add_space(15.0);
+                            
+                            ui.horizontal(|ui| {
+                                if ui.button("🗑 Удалить в корзину").clicked() {
+                                    delete_confirmed = true;
+                                }
+                                
+                                if ui.button("Отмена").clicked() {
+                                    cancelled = true;
+                                }
+                            });
+                            
+                            ui.add_space(10.0);
+                        });
+                    });
+                
+                if delete_confirmed {
+                    // Выполняем удаление
+                    match trash::delete(&path) {
+                        Ok(_) => {
+                            // Удаляем из дерева
+                            self.remove_from_tree(&path);
+                            self.status_message = Some(format!("✓ Удалено в корзину: {}", path_display));
+                            self.status_message_time = Some(Instant::now());
+                        }
+                        Err(e) => {
+                            self.status_message = Some(format!("✗ Ошибка удаления: {}", e));
+                            self.status_message_time = Some(Instant::now());
+                        }
+                    }
+                    self.show_delete_confirm = false;
+                    self.path_to_delete = None;
+                }
+                
+                if cancelled {
+                    self.show_delete_confirm = false;
+                    self.path_to_delete = None;
+                }
+            }
+        }
+        
+        // Автоматически скрываем статусное сообщение через 5 секунд
+        if let Some(time) = self.status_message_time {
+            if time.elapsed().as_secs() > 5 {
+                self.status_message = None;
+                self.status_message_time = None;
+            }
+        }
+        
         // Окно "О программе"
         if self.show_about_window {
             egui::Window::new("О программе")
@@ -699,7 +864,7 @@ fn scan_directory(
             .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"))
             .to_string();
         
-        let mut node = DirNode::new(path.to_path_buf(), name, 0);
+        let mut node = DirNode::new(path.to_path_buf(), name, 0, false);
         let mut dir_size = 0u64;
         
         // Читаем содержимое директории
@@ -720,13 +885,13 @@ fn scan_directory(
                 Err(_) => continue,
             };
             
-            // Используем metadata из entry (быстрее!)
-            let metadata = match entry.metadata() {
-                Ok(m) => m,
+            // Используем file_type() - не следует символическим ссылкам
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
                 Err(_) => continue,
             };
             
-            if metadata.is_dir() {
+            if file_type.is_dir() {
                 // Рекурсивно сканируем подпапку
                 if let Some(child_node) = scan_recursive_single(
                     &entry.path(),
@@ -739,11 +904,18 @@ fn scan_directory(
                     children.push(child_node);
                     dir_count.fetch_add(1, Ordering::Relaxed);
                 }
-            } else if metadata.is_file() {
-                let file_size = metadata.len();
-                dir_size += file_size;
-                file_count.fetch_add(1, Ordering::Relaxed);
-                total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+            } else if file_type.is_file() {
+                // Добавляем файл как узел дерева
+                if let Ok(metadata) = entry.metadata() {
+                    let file_size = metadata.len();
+                    let file_name = entry.file_name().to_string_lossy().to_string();
+                    let file_node = DirNode::new(entry.path(), file_name, file_size, true);
+                    
+                    dir_size += file_size;
+                    children.push(file_node);
+                    file_count.fetch_add(1, Ordering::Relaxed);
+                    total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+                }
             }
         }
         
@@ -772,7 +944,7 @@ fn scan_directory(
             .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"))
             .to_string();
         
-        let mut node = DirNode::new(path.to_path_buf(), name, 0);
+        let mut node = DirNode::new(path.to_path_buf(), name, 0, false);
         
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
@@ -794,9 +966,9 @@ fn scan_directory(
                         return None;
                     }
                     
-                    let metadata = entry.metadata().ok()?;
+                    let file_type = entry.file_type().ok()?;
                     
-                    if metadata.is_dir() {
+                    if file_type.is_dir() {
                         let child = scan_recursive_parallel(
                             &entry.path(),
                             cancel,
@@ -807,7 +979,8 @@ fn scan_directory(
                         )?;
                         dir_count.fetch_add(1, Ordering::Relaxed);
                         Some((child.size, Some(child)))
-                    } else if metadata.is_file() {
+                    } else if file_type.is_file() {
+                        let metadata = entry.metadata().ok()?;
                         let file_size = metadata.len();
                         file_count.fetch_add(1, Ordering::Relaxed);
                         total_size.fetch_add(file_size as usize, Ordering::Relaxed);
@@ -831,12 +1004,12 @@ fn scan_directory(
                     break;
                 }
                 
-                let metadata = match entry.metadata() {
-                    Ok(m) => m,
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
                     Err(_) => continue,
                 };
                 
-                if metadata.is_dir() {
+                if file_type.is_dir() {
                     if let Some(child_node) = scan_recursive_single(
                         &entry.path(),
                         cancel,
@@ -848,11 +1021,13 @@ fn scan_directory(
                         children.push(child_node);
                         dir_count.fetch_add(1, Ordering::Relaxed);
                     }
-                } else if metadata.is_file() {
-                    let file_size = metadata.len();
-                    dir_size += file_size;
-                    file_count.fetch_add(1, Ordering::Relaxed);
-                    total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+                } else if file_type.is_file() {
+                    if let Ok(metadata) = entry.metadata() {
+                        let file_size = metadata.len();
+                        dir_size += file_size;
+                        file_count.fetch_add(1, Ordering::Relaxed);
+                        total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+                    }
                 }
             }
         }
