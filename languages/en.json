@@ -22,6 +22,7 @@
   "scan_time": "Scan time",
   "select_path": "Select a path and click 'Scan' to begin",
   "available_drives": "Available drives:",
+  "available": "available",
   "delete_to_trash": "Delete to Recycle Bin",
   "open_in_explorer": "Open in Explorer",
   "copy_path": "Copy Path",

@@ -22,6 +22,7 @@
   "scan_time": "Temps de scan",
   "select_path": "Sélectionnez un chemin et cliquez sur 'Scanner' pour commencer",
   "available_drives": "Lecteurs disponibles:",
+  "available": "disponible",
   "delete_to_trash": "Déplacer vers la corbeille",
   "open_in_explorer": "Ouvrir dans l'Explorateur",
   "copy_path": "Copier le chemin",

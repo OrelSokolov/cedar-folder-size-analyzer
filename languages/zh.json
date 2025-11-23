@@ -22,6 +22,7 @@
   "scan_time": "扫描时间",
   "select_path": "选择路径并点击'扫描'开始",
   "available_drives": "可用驱动器：",
+  "available": "可用",
   "delete_to_trash": "删除到回收站",
   "open_in_explorer": "在资源管理器中打开",
   "copy_path": "复制路径",

@@ -1032,7 +1032,7 @@ impl eframe::App for CedarApp {
                                                     ui.label(egui::RichText::new("•")
                                                         .size(11.0)
                                                         .color(ui.visuals().weak_text_color()));
-                                                    ui.label(egui::RichText::new(format!("{} свободно", format_size(drive.available_space)))
+                                                    ui.label(egui::RichText::new(format!("{} {}", format_size(drive.available_space), self.translations.get("available")))
                                                         .size(11.0)
                                                         .color(if self.config.dark_mode {
                                                             egui::Color32::from_rgb(100, 180, 120)
