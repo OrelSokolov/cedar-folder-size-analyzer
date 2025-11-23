@@ -1,3 +1,11 @@
+---
+name: Release Checklist
+about: Checklist для создания нового релиза
+title: 'Release v{VERSION}'
+labels: release
+assignees: ''
+---
+
 ## Release Checklist v{VERSION}
 
 ### Подготовка
@@ -24,10 +32,10 @@
 ### Создание релиза
 
 - [ ] Создан git тег: `git tag -a v{VERSION} -m "Release v{VERSION}"`
-- [ ] Тег отправлен в GitLab: `git push origin v{VERSION}`
-- [ ] GitLab CI/CD пайплайн запустился
-- [ ] Пайплайн завершился успешно
-- [ ] Релиз создан в GitLab
+- [ ] Тег отправлен в GitHub: `git push origin v{VERSION}`
+- [ ] GitHub Actions workflow запустился
+- [ ] Workflow завершился успешно
+- [ ] Релиз создан в GitHub
 - [ ] Все артефакты прикреплены к релизу
 
 ### Проверка релиза

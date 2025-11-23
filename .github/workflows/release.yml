@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    name: Build Windows Release
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Build Release
+        run: cargo build --release --verbose
+      
+      - name: Get version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Version: $version"
+      
+      - name: Create ZIP archive
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $zipName = "cedar-folder-size-analyzer-$version-x86_64-windows.zip"
+          Compress-Archive -Path "target\release\cedar-folder-size-analyzer.exe" -DestinationPath "target\release\$zipName"
+          echo "Created $zipName"
+      
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          
+          # Проверка наличия WiX
+          if (!(Test-Path "wix-tools\candle.exe")) {
+            Write-Error "WiX tools not found!"
+            exit 1
+          }
+          
+          # Создание директории
+          New-Item -ItemType Directory -Force -Path "target\wix" | Out-Null
+          
+          # Компиляция WiX
+          & ".\wix-tools\candle.exe" -nologo -arch x64 -ext WixUIExtension `
+            "wix\main.wxs" `
+            "-dCargoTargetBinDir=target\release" `
+            "-dVersion=$version" `
+            -out "target\wix\main.wixobj"
+          
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          
+          # Создание MSI
+          & ".\wix-tools\light.exe" -nologo -ext WixUIExtension -ext WixUtilExtension `
+            -out "target\wix\cedar-folder-size-analyzer-$version-x86_64.msi" `
+            "target\wix\main.wixobj"
+          
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          
+          echo "MSI created successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            target/release/cedar-folder-size-analyzer.exe
+            target/release/*.zip
+            target/wix/*.msi
+          retention-days: 7
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/release/cedar-folder-size-analyzer.exe
+            target/release/cedar-folder-size-analyzer-${{ steps.version.outputs.VERSION }}-x86_64-windows.zip
+            target/wix/cedar-folder-size-analyzer-${{ steps.version.outputs.VERSION }}-x86_64.msi
+          body: |
+            ## 🌲 Cedar Folder Size Analyzer ${{ github.ref_name }}
+            
+            Анализатор размеров папок и дисков для Windows.
+            
+            ### 📦 Установка
+            
+            **Рекомендуется:** Скачайте и запустите MSI установщик ниже.
+            
+            **Альтернатива:** Скачайте ZIP архив и запустите EXE файл напрямую.
+            
+            ### ✨ Основные возможности
+            
+            - 📊 Сканирование дисков и папок
+            - 🌲 Древовидное отображение структуры
+            - 📏 Отображение размеров папок и файлов
+            - ⚡ Адаптивная многопоточность (SSD/HDD)
+            - 🌙 Тёмная и светлая темы
+            - 🌍 Поддержка 6 языков
+            - 🗑️ Безопасное удаление в корзину
+            - 📂 Интеграция с проводником Windows
+            
+            ### 📝 Changelog
+            
+            См. [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) для деталей.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    name: Code Quality Check
+    runs-on: windows-latest
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run cargo check
+        run: cargo check --verbose
+      
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
+        continue-on-error: true
+      
+      - name: Run cargo fmt check
+        run: cargo fmt -- --check
+        continue-on-error: true
+

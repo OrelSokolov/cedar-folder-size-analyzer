@@ -9,9 +9,9 @@
     2. Обновляет версию в Cargo.toml
     3. Создает коммит с изменениями
     4. Создает git тег
-    5. Отправляет изменения и тег в GitLab
+    5. Отправляет изменения и тег в GitHub
     
-    GitLab CI автоматически соберёт релиз и создаст артефакты.
+    GitHub Actions автоматически соберёт релиз и создаст артефакты.
 
 .PARAMETER Version
     Версия релиза в формате semver (например: 0.1.0, 1.0.0)
@@ -199,7 +199,7 @@ if ($DryRun) {
     Write-Warning "`nВнимание! Следующие действия будут выполнены:"
     Write-Host "  1. Отправка коммита в удалённый репозиторий"
     Write-Host "  2. Отправка тега $tagName"
-    Write-Host "  3. Запуск GitLab CI/CD для сборки релиза"
+    Write-Host "  3. Запуск GitHub Actions для сборки релиза"
     Write-Host ""
     
     $confirmation = Read-Host "Продолжить? (y/N)"
@@ -210,14 +210,22 @@ if ($DryRun) {
         
         Write-ColorOutput "`n═══════════════════════════════════════════" "Magenta"
         Write-Success "Релиз $tagName успешно отправлен!"
-        Write-ColorOutput "`nGitLab CI начнёт сборку автоматически." "Cyan"
-        Write-ColorOutput "Проверить статус можно здесь:" "Cyan"
-        Write-ColorOutput "  $remoteUrl/-/pipelines" "White"
-        Write-ColorOutput "`nПосле завершения сборки релиз будет доступен здесь:" "Cyan"
-        Write-ColorOutput "  $remoteUrl/-/releases/$tagName" "White"
+        Write-ColorOutput "`nGitHub Actions начнёт сборку автоматически." "Cyan"
+        
+        # Извлекаем username и repo из remote URL
+        if ($remoteUrl -match 'github\.com[:/](.+)/(.+?)(\.git)?$') {
+            $repoPath = "$($Matches[1])/$($Matches[2] -replace '\.git$', '')"
+            Write-ColorOutput "Проверить статус можно здесь:" "Cyan"
+            Write-ColorOutput "  https://github.com/$repoPath/actions" "White"
+            Write-ColorOutput "`nПосле завершения сборки релиз будет доступен здесь:" "Cyan"
+            Write-ColorOutput "  https://github.com/$repoPath/releases/tag/$tagName" "White"
+        } else {
+            Write-ColorOutput "Проверить статус: $remoteUrl" "Cyan"
+        }
+        
         Write-ColorOutput "`nАртефакты релиза:" "Cyan"
         Write-Host "  • cedar-folder-size-analyzer-$Version-x86_64.msi"
-        Write-Host "  • cedar-folder-size-analyzer-$Version-x86_64.zip"
+        Write-Host "  • cedar-folder-size-analyzer-$Version-x86_64-windows.zip"
         Write-Host "  • cedar-folder-size-analyzer.exe"
     } else {
         Write-Warning "`nОтменено пользователем."

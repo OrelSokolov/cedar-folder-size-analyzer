@@ -26,8 +26,8 @@
 - 📋 Копирование путей в буфер обмена
 - 🎨 Современный GUI с иконками Phosphor
 - 📦 MSI установщик
-- 🔄 GitLab CI/CD для автоматической сборки релизов
+- 🔄 GitHub Actions для автоматической сборки релизов
 
-[Unreleased]: https://gitlab.com/yourusername/cedar-folder-size-analyzer/compare/v0.1.0...HEAD
-[0.1.0]: https://gitlab.com/yourusername/cedar-folder-size-analyzer/releases/tag/v0.1.0
+[Unreleased]: https://github.com/OrelSokolov/cedar-folder-size-analyzer/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/OrelSokolov/cedar-folder-size-analyzer/releases/tag/v0.1.0
 
