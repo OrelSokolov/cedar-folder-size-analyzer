@@ -49,6 +49,47 @@ cargo build --release
 cargo run --release
 ```
 
+### Вариант 3: Создание MSI установщика
+
+**Требования:**
+- Rust 1.70 или выше
+- Windows 10/11
+- WiX Toolset (включён в проект в папке `wix-tools/`)
+
+**Шаги сборки:**
+
+```bash
+# 1. Соберите релизную версию приложения
+cargo build --release
+
+# 2. Скомпилируйте WiX файл в объектный файл
+.\wix-tools\candle.exe -nologo -arch x64 -ext WixUIExtension wix\main.wxs `
+  "-dCargoTargetBinDir=target\release" `
+  "-dVersion=0.1.0" `
+  -out target\wix\main.wixobj
+
+# 3. Создайте MSI установщик
+.\wix-tools\light.exe -nologo -ext WixUIExtension -ext WixUtilExtension `
+  -out target\wix\cedar-folder-size-analyzer-0.1.0-x86_64.msi `
+  target\wix\main.wixobj
+```
+
+Готовый MSI установщик будет находиться в `target\wix\cedar-folder-size-analyzer-0.1.0-x86_64.msi`
+
+> **Примечание:** Если вы изменили `src/icons/cedar.svg`, запустите конвертер иконок для обновления `wix/Product.ico`:
+> ```bash
+> cd icon_converter
+> cargo run --release
+> cd ..
+> ```
+
+**Возможности установщика:**
+- ✅ Установка в `C:\Program Files\Cedar\`
+- ✅ Создание ярлыка в меню "Пуск"
+- ✅ Опциональный ярлык на рабочем столе
+- ✅ Опциональное добавление в PATH
+- ✅ Встроенная иконка приложения
+- ✅ Простая деинсталляция через "Программы и компоненты"
 
 ## Использование
 
@@ -109,8 +150,16 @@ cargo run --release
 cedar-folder-size-analyzer/
 ├── src/
 │   ├── main.rs          # Основной код приложения
-│   └── i18n.rs          # Система интернационализации
-├── languages/           # Файлы переводов
+│   ├── i18n.rs          # Система интернационализации
+│   └── icons/           # SVG иконки (cedar, folder, file, search, stop)
+├── languages/           # Файлы переводов (en, ru, de, zh, es, fr)
+├── wix/                 # Файлы для создания MSI установщика
+│   ├── main.wxs         # Конфигурация WiX
+│   ├── License.rtf      # Лицензионное соглашение
+│   └── Product.ico      # Иконка приложения (генерируется из cedar.svg)
+├── wix-tools/           # WiX Toolset (candle.exe, light.exe)
+├── icon_converter/      # Утилита для конвертации SVG в ICO
+├── build.rs             # Скрипт сборки (встраивание иконки в EXE)
 ├── Cargo.toml           # Зависимости и настройки проекта
 └── README.md            # Документация
 ```
@@ -122,12 +171,12 @@ cedar-folder-size-analyzer/
 - [ ] Фильтрация по типам файлов
 - [ ] История сканирований
 - [ ] Поиск по дереву
-- [ ] Контекстное меню (удаление, открытие в проводнике)
 - [ ] Настройки (исключение папок, лимиты глубины)
+- [ ] Портирование на Linux и macOS
 
 ## Лицензия
 
-MIT
+Freeware - бесплатное программное обеспечение для личного и коммерческого использования.
 
 ## Автор
 

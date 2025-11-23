@@ -13,6 +13,8 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
+*.wxs
+
 wix-tools/
 # MSI/WiX
 *.wixobj
