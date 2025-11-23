@@ -138,13 +138,17 @@ pub fn detect_system_theme() -> bool {
             .output()
         {
             let output_str = String::from_utf8_lossy(&output.stdout);
+            // AppsUseLightTheme: 0x0 = светлая тема отключена (тёмная тема)
+            // AppsUseLightTheme: 0x1 = светлая тема включена
             if output_str.contains("0x0") {
-                return true; // Dark mode
+                return true; // Dark mode (светлая тема отключена)
+            } else if output_str.contains("0x1") {
+                return false; // Light mode (светлая тема включена)
             }
         }
     }
     
-    // По умолчанию тёмная тема
-    true
+    // По умолчанию светлая тема
+    false
 }
 

@@ -1,0 +1,176 @@
+stages:
+  - build
+  - release
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  RUSTUP_HOME: $CI_PROJECT_DIR/.rustup
+
+# Кэширование для ускорения сборки
+.cache_template: &cache_template
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .cargo/
+      - .rustup/
+      - target/
+
+# Сборка релизной версии
+build:windows:
+  stage: build
+  tags:
+    - windows
+  <<: *cache_template
+  before_script:
+    # Установка Rust если не установлен
+    - |
+      if (!(Test-Path "$env:CARGO_HOME\bin\cargo.exe")) {
+        Write-Host "Installing Rust..."
+        Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-toolchain stable --profile minimal
+        Remove-Item rustup-init.exe
+      }
+    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
+    - rustc --version
+    - cargo --version
+  script:
+    # Сборка релизной версии
+    - Write-Host "Building release version..."
+    - cargo build --release --verbose
+    
+    # Создание ZIP архива с исполняемым файлом
+    - Write-Host "Creating ZIP archive..."
+    - $version = if ($env:CI_COMMIT_TAG) { $env:CI_COMMIT_TAG } else { "dev-$($env:CI_COMMIT_SHORT_SHA)" }
+    - $zipName = "cedar-folder-size-analyzer-$version-x86_64.zip"
+    - Compress-Archive -Path "target\release\cedar-folder-size-analyzer.exe" -DestinationPath "target\release\$zipName" -Force
+    
+    # Проверка наличия WiX
+    - Write-Host "Building MSI installer..."
+    - if (!(Test-Path "wix-tools\candle.exe")) {
+        Write-Error "WiX tools not found in wix-tools directory!"
+        exit 1
+      }
+    
+    # Создание директории для WiX артефактов
+    - New-Item -ItemType Directory -Force -Path "target\wix" | Out-Null
+    
+    # Компиляция WiX файла
+    - |
+      & ".\wix-tools\candle.exe" -nologo -arch x64 -ext WixUIExtension `
+        "wix\main.wxs" `
+        "-dCargoTargetBinDir=target\release" `
+        "-dVersion=$version" `
+        -out "target\wix\main.wixobj"
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "WiX candle failed!"
+        exit 1
+      }
+    
+    # Создание MSI установщика
+    - |
+      & ".\wix-tools\light.exe" -nologo -ext WixUIExtension -ext WixUtilExtension `
+        -out "target\wix\cedar-folder-size-analyzer-$version-x86_64.msi" `
+        "target\wix\main.wixobj"
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "WiX light failed!"
+        exit 1
+      }
+    
+    # Вывод информации об артефактах
+    - Write-Host "Build completed successfully!"
+    - Write-Host "Artifacts:"
+    - Get-ChildItem "target\release\cedar-folder-size-analyzer.exe" | Format-Table Name, Length, LastWriteTime
+    - Get-ChildItem "target\release\$zipName" | Format-Table Name, Length, LastWriteTime
+    - Get-ChildItem "target\wix\cedar-folder-size-analyzer-$version-x86_64.msi" | Format-Table Name, Length, LastWriteTime
+  
+  artifacts:
+    name: "cedar-folder-size-analyzer-$CI_COMMIT_REF_NAME"
+    paths:
+      - target/release/cedar-folder-size-analyzer.exe
+      - target/release/*.zip
+      - target/wix/*.msi
+    expire_in: 1 week
+  
+  rules:
+    # Запускать для всех коммитов в master и для всех тегов
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_TAG
+
+# Создание релиза для тегов
+release:gitlab:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  tags:
+    - docker
+  needs:
+    - job: build:windows
+      artifacts: true
+  script:
+    - echo "Creating GitLab release for tag $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: 'Cedar Folder Size Analyzer $CI_COMMIT_TAG'
+    description: |
+      ## 🌲 Cedar Folder Size Analyzer $CI_COMMIT_TAG
+      
+      Анализатор размеров папок и дисков для Windows.
+      
+      ### 📦 Установка
+      
+      **Рекомендуется:** Скачайте и запустите MSI установщик ниже.
+      
+      **Альтернатива:** Скачайте ZIP архив и запустите EXE файл напрямую.
+      
+      ### ✨ Основные возможности
+      
+      - 📊 Сканирование дисков и папок
+      - 🌲 Древовидное отображение структуры
+      - 📏 Отображение размеров папок и файлов
+      - ⚡ Адаптивная многопоточность (SSD/HDD)
+      - 🌙 Тёмная и светлая темы
+      - 🌍 Поддержка 6 языков
+      - 🗑️ Безопасное удаление в корзину
+      - 📂 Интеграция с проводником Windows
+      
+      ### 📝 Changelog
+      
+      См. [CHANGELOG.md](CHANGELOG.md) для деталей.
+  artifacts:
+    paths:
+      - target/release/cedar-folder-size-analyzer.exe
+      - target/release/*.zip
+      - target/wix/*.msi
+  rules:
+    # Запускать только для тегов
+    - if: $CI_COMMIT_TAG
+
+# Опциональная задача для проверки кода (запускается для всех коммитов, кроме тегов)
+lint:check:
+  stage: build
+  tags:
+    - windows
+  <<: *cache_template
+  before_script:
+    - $env:PATH = "$env:CARGO_HOME\bin;$env:PATH"
+    - |
+      if (!(Test-Path "$env:CARGO_HOME\bin\cargo.exe")) {
+        Write-Host "Installing Rust..."
+        Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-toolchain stable --profile minimal
+        Remove-Item rustup-init.exe
+      }
+    - rustup component add clippy rustfmt
+  script:
+    - Write-Host "Running cargo check..."
+    - cargo check --verbose
+    - Write-Host "Running cargo clippy..."
+    - cargo clippy -- -D warnings
+    - Write-Host "Running cargo fmt check..."
+    - cargo fmt -- --check
+  rules:
+    # Запускать для веток, но не для тегов
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH
+  allow_failure: true
+

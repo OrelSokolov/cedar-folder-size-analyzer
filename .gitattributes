@@ -1,0 +1,46 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Source code
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Windows files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.wxs text eol=crlf
+*.rtf text eol=crlf
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.msi binary
+*.exe binary
+*.dll binary
+*.pdb binary
+*.wixobj binary
+*.wixpdb binary
+
+# Linguist overrides
+*.wxs linguist-language=XML
+wix-tools/* linguist-vendored
+icon_converter/* linguist-vendored
+target/* linguist-generated
+

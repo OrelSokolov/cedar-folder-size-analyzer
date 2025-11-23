@@ -129,7 +129,7 @@ fn main() -> Result<(), eframe::Error> {
     };
     
     eframe::run_native(
-        "Cedar Folder Size",
+        "cedar_folder_size_analyzer",
         options,
         Box::new(|cc| {
             // Загружаем шрифт Phosphor
@@ -983,9 +983,16 @@ impl eframe::App for CedarApp {
                                                 ui.spacing_mut().item_spacing.y = 3.0;
                                                 
                                                 // Progress bar с рамкой
+                                                // Цвет текста: белый на красном/оранжевом фоне, черный на зеленом
+                                                let text_color = if usage_percent > 0.75 {
+                                                    egui::Color32::WHITE
+                                                } else {
+                                                    egui::Color32::BLACK
+                                                };
+                                                
                                                 let mut progress = egui::ProgressBar::new(usage_percent)
                                                     .text(egui::RichText::new(format!("{:.1}%", usage_percent * 100.0))
-                                                        .color(egui::Color32::BLACK)
+                                                        .color(text_color)
                                                         .size(11.0))
                                                     .fill(progress_color)
                                                     .desired_width(200.0);
