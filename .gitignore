@@ -13,3 +13,14 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
+wix-tools/
+# MSI/WiX
+*.wixobj
+*.wixpdb
+wix314-binaries.zip
+
+# Temporary build files
+icon_converter/target/
+debug.exe
+debug.pdb
+

@@ -1,7 +1,10 @@
 [package]
-name = "baobab-rs"
+name = "cedar-folder-size-analyzer"
 version = "0.1.0"
 edition = "2021"
+authors = ["Oleg Orlov <orelcokolov@gmail.com>"]
+license = "MIT"
+description = "Cedar Folder Size Analyzer - Disk space analyzer for Windows"
 
 [dependencies]
 eframe = "0.29"
@@ -20,6 +23,9 @@ serde_json = "1.0"
 sys-locale = "0.3"
 usvg = "0.44"
 tiny-skia = "0.11"
+
+[build-dependencies]
+winresource = "0.1"
 
 [profile.release]
 opt-level = 3

@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
+
+// Встраиваем языковые файлы в бинарник
+const LANG_EN: &str = include_str!("../languages/en.json");
+const LANG_RU: &str = include_str!("../languages/ru.json");
+const LANG_DE: &str = include_str!("../languages/de.json");
+const LANG_ZH: &str = include_str!("../languages/zh.json");
+const LANG_ES: &str = include_str!("../languages/es.json");
+const LANG_FR: &str = include_str!("../languages/fr.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
@@ -65,20 +72,20 @@ pub struct Translations {
 
 impl Translations {
     pub fn load(lang: Language) -> Self {
-        let path = format!("languages/{}.json", lang.code());
+        // Получаем встроенный JSON для выбранного языка
+        let content = match lang {
+            Language::English => LANG_EN,
+            Language::Russian => LANG_RU,
+            Language::German => LANG_DE,
+            Language::Chinese => LANG_ZH,
+            Language::Spanish => LANG_ES,
+            Language::French => LANG_FR,
+        };
         
-        match fs::read_to_string(&path) {
-            Ok(content) => {
-                match serde_json::from_str(&content) {
-                    Ok(translations) => Self { translations },
-                    Err(e) => {
-                        eprintln!("Failed to parse {}: {}", path, e);
-                        Self::fallback()
-                    }
-                }
-            }
+        match serde_json::from_str(content) {
+            Ok(translations) => Self { translations },
             Err(e) => {
-                eprintln!("Failed to load {}: {}", path, e);
+                eprintln!("Failed to parse language {}: {}", lang.code(), e);
                 Self::fallback()
             }
         }
@@ -87,7 +94,7 @@ impl Translations {
     fn fallback() -> Self {
         // Minimal English fallback
         let mut translations = HashMap::new();
-        translations.insert("app_title".to_string(), "Baobab-RS".to_string());
+        translations.insert("app_title".to_string(), "Cedar Folder Size Analyzer".to_string());
         Self { translations }
     }
 

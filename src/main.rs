@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use eframe::egui;
 use egui_phosphor::regular;
 use rayon::prelude::*;
@@ -11,6 +13,9 @@ use sysinfo::Disks;
 
 mod i18n;
 use i18n::{Language, Translations};
+
+// Встраиваем иконку приложения
+const ICON_CEDAR: &[u8] = include_bytes!("icons/cedar.svg");
 
 // Встраиваем SVG иконки для тёмной темы
 const ICON_FOLDER_DARK: &[u8] = include_bytes!("icons/dark/folder.svg");
@@ -67,17 +72,63 @@ fn load_svg_as_texture(
     ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR)
 }
 
+// Функция для загрузки иконки приложения
+fn load_icon() -> egui::IconData {
+    // Парсим SVG
+    let opt = usvg::Options::default();
+    let tree = usvg::Tree::from_data(ICON_CEDAR, &opt).expect("Failed to parse SVG icon");
+    
+    // Размер иконки
+    let size = 256u32;
+    
+    // Получаем размеры SVG
+    let svg_size = tree.size();
+    
+    // Вычисляем масштаб
+    let scale_x = size as f32 / svg_size.width();
+    let scale_y = size as f32 / svg_size.height();
+    let scale = scale_x.min(scale_y);
+    
+    // Создаём pixmap для рендеринга
+    let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("Failed to create pixmap");
+    
+    // Заполняем прозрачным фоном
+    pixmap.fill(tiny_skia::Color::TRANSPARENT);
+    
+    // Создаём трансформацию для масштабирования и центрирования
+    let offset_x = (size as f32 - svg_size.width() * scale) / 2.0;
+    let offset_y = (size as f32 - svg_size.height() * scale) / 2.0;
+    let transform = tiny_skia::Transform::from_translate(offset_x, offset_y)
+        .post_scale(scale, scale);
+    
+    // Рендерим SVG
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    
+    // Конвертируем в RGBA
+    let rgba = pixmap.data().to_vec();
+    
+    egui::IconData {
+        rgba,
+        width: size,
+        height: size,
+    }
+}
+
 fn main() -> Result<(), eframe::Error> {
+    // Загружаем иконку приложения
+    let icon_data = load_icon();
+    
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
-            .with_title("Baobab-RS - Disk Usage Analyzer"),
+            .with_title("Cedar Folder Size")
+            .with_icon(icon_data),
         persist_window: true,
         ..Default::default()
     };
     
     eframe::run_native(
-        "Baobab-RS",
+        "Cedar Folder Size",
         options,
         Box::new(|cc| {
             // Загружаем шрифт Phosphor
@@ -105,7 +156,7 @@ fn main() -> Result<(), eframe::Error> {
             
             cc.egui_ctx.set_style(style);
             
-            Ok(Box::new(BaobabApp::new(cc)))
+            Ok(Box::new(CedarApp::new(cc)))
         }),
     )
 }
@@ -197,7 +248,7 @@ impl Default for AppConfig {
     }
 }
 
-struct BaobabApp {
+struct CedarApp {
     root_node: Option<DirNode>,
     selected_path: Option<PathBuf>,
     scan_path: String,
@@ -221,9 +272,10 @@ struct BaobabApp {
     icon_file: egui::TextureHandle,
     icon_search: egui::TextureHandle,
     icon_stop: egui::TextureHandle,
+    icon_cedar: egui::TextureHandle,
 }
 
-impl BaobabApp {
+impl CedarApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Загружаем конфигурацию из хранилища
         let config: AppConfig = if let Some(storage) = cc.storage {
@@ -266,6 +318,7 @@ impl BaobabApp {
         let icon_file = load_svg_as_texture(&cc.egui_ctx, file_data, "icon_file", 20);
         let icon_search = load_svg_as_texture(&cc.egui_ctx, search_data, "icon_search", 20);
         let icon_stop = load_svg_as_texture(&cc.egui_ctx, stop_data, "icon_stop", 20);
+        let icon_cedar = load_svg_as_texture(&cc.egui_ctx, ICON_CEDAR, "icon_cedar", 80);
         
         Self {
             root_node: None,
@@ -290,6 +343,7 @@ impl BaobabApp {
             icon_file,
             icon_search,
             icon_stop,
+            icon_cedar,
         }
     }
     
@@ -313,7 +367,7 @@ impl BaobabApp {
     }
 }
 
-impl BaobabApp {
+impl CedarApp {
     fn remove_from_tree(&mut self, path: &PathBuf) {
         fn remove_recursive(node: &mut DirNode, path: &PathBuf) -> bool {
             // Удаляем из детей
@@ -536,7 +590,7 @@ fn render_tree_node_static(
     }
 }
 
-impl eframe::App for BaobabApp {
+impl eframe::App for CedarApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // Сохраняем последний путь
         self.config.last_path = Some(self.scan_path.clone());
@@ -976,7 +1030,12 @@ impl eframe::App for BaobabApp {
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
-                        ui.heading(format!("{} Baobab-RS", regular::TREE_STRUCTURE));
+                        
+                        // Иконка кедра
+                        ui.add(egui::Image::new(&self.icon_cedar).max_size(egui::vec2(80.0, 80.0)));
+                        ui.add_space(5.0);
+                        
+                        ui.heading("Cedar Folder Size Analyzer");
                         ui.add_space(10.0);
                         
                         ui.label("Анализатор использования дискового пространства");
