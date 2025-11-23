@@ -662,22 +662,24 @@ impl eframe::App for BaobabApp {
                 
                 // Кнопка сканирования с SVG иконкой
                 ui.add_enabled_ui(!self.is_scanning, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Image::new(&self.icon_search).max_size(egui::vec2(16.0, 16.0)));
-                        if ui.button(&scan_label).clicked() {
-                            self.start_scan(self.scan_path.clone());
-                        }
-                    });
+                    let button = egui::Button::image_and_text(
+                        egui::Image::new(&self.icon_search).max_size(egui::vec2(16.0, 16.0)),
+                        &scan_label
+                    );
+                    if ui.add(button).clicked() {
+                        self.start_scan(self.scan_path.clone());
+                    }
                 });
                 
                 // Кнопка остановки с SVG иконкой
                 ui.add_enabled_ui(self.is_scanning, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Image::new(&self.icon_stop).max_size(egui::vec2(16.0, 16.0)));
-                        if ui.button(&stop_label).clicked() {
-                            self.stop_scan();
-                        }
-                    });
+                    let button = egui::Button::image_and_text(
+                        egui::Image::new(&self.icon_stop).max_size(egui::vec2(16.0, 16.0)),
+                        &stop_label
+                    );
+                    if ui.add(button).clicked() {
+                        self.stop_scan();
+                    }
                 });
             });
             
