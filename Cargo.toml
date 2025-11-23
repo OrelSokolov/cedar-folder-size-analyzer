@@ -8,6 +8,7 @@ eframe = "0.29"
 egui = "0.29"
 sysinfo = "0.32"
 rfd = "0.15"
+rayon = "1.10"
 
 [profile.release]
 opt-level = 3

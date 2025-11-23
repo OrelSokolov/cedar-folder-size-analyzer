@@ -1,7 +1,8 @@
 use eframe::egui;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::Disks;
@@ -57,6 +58,8 @@ struct ScanProgress {
     dirs_scanned: usize,
     total_size: u64,
     disk_size: u64,
+    disk_type: String,
+    thread_count: usize,
 }
 
 impl Default for ScanProgress {
@@ -68,6 +71,8 @@ impl Default for ScanProgress {
             dirs_scanned: 0,
             total_size: 0,
             disk_size: 0,
+            disk_type: String::new(),
+            thread_count: 1,
         }
     }
 }
@@ -133,8 +138,8 @@ impl BaobabApp {
         // Очищаем предыдущий результат
         *result.lock().unwrap() = None;
         
-        // Получаем размер диска
-        let disk_size = get_disk_size(&path);
+        // Получаем информацию о диске
+        let (disk_size, disk_type, is_ssd) = get_disk_info(&path);
         
         {
             let mut prog = progress.lock().unwrap();
@@ -144,10 +149,16 @@ impl BaobabApp {
             prog.dirs_scanned = 0;
             prog.total_size = 0;
             prog.disk_size = disk_size;
+            prog.disk_type = disk_type.clone();
+            prog.thread_count = if is_ssd {
+                rayon::current_num_threads()
+            } else {
+                1
+            };
         }
         
         thread::spawn(move || {
-            scan_directory(&path, progress.clone(), result.clone(), cancel.clone())
+            scan_directory(&path, progress.clone(), result.clone(), cancel.clone(), is_ssd)
         });
     }
     
@@ -160,7 +171,7 @@ impl BaobabApp {
     }
 }
 
-fn get_disk_size(path: &str) -> u64 {
+fn get_disk_info(path: &str) -> (u64, String, bool) {
     let disks = Disks::new_with_refreshed_list();
     let path_buf = PathBuf::from(path);
     
@@ -181,7 +192,21 @@ fn get_disk_size(path: &str) -> u64 {
         }
     }
     
-    best_match.map(|disk| disk.total_space()).unwrap_or(0)
+    if let Some(disk) = best_match {
+        let size = disk.total_space();
+        let disk_type = format!("{:?}", disk.kind());
+        
+        // Определяем, является ли диск SSD
+        let is_ssd = matches!(disk.kind(), sysinfo::DiskKind::SSD);
+        
+        (size, disk_type, is_ssd)
+    } else {
+        (0, "Unknown".to_string(), false)
+    }
+}
+
+fn get_disk_size(path: &str) -> u64 {
+    get_disk_info(path).0
 }
 
 fn render_tree_node_static(
@@ -294,10 +319,18 @@ impl eframe::App for BaobabApp {
                         ui.label(format!("📁 Directories: {}", progress.dirs_scanned));
                         ui.separator();
                         ui.label(format!("💾 Scanned: {}", format_size(progress.total_size)));
+                    });
+                    
+                    ui.horizontal(|ui| {
                         if progress.disk_size > 0 {
-                            ui.separator();
                             ui.label(format!("📦 Disk: {}", format_size(progress.disk_size)));
+                            ui.separator();
                         }
+                        if !progress.disk_type.is_empty() {
+                            ui.label(format!("💿 Type: {}", progress.disk_type));
+                            ui.separator();
+                        }
+                        ui.label(format!("🧵 Threads: {}", progress.thread_count));
                     });
                     
                     // Current path
@@ -427,6 +460,7 @@ fn scan_directory(
     progress: Arc<Mutex<ScanProgress>>,
     result: Arc<Mutex<Option<ScanResult>>>,
     cancel: Arc<AtomicBool>,
+    use_parallel: bool,
 ) {
     let start_time = Instant::now();
     let path_buf = PathBuf::from(path);
@@ -440,24 +474,25 @@ fn scan_directory(
     
     {
         let mut prog = progress.lock().unwrap();
-        prog.message = "Scanning files and directories...".to_string();
+        prog.message = if use_parallel {
+            "Scanning (parallel mode)...".to_string()
+        } else {
+            "Scanning (single-threaded mode)...".to_string()
+        };
     }
     
-    // Счётчики для прогресса
-    let file_count = Arc::new(Mutex::new(0usize));
-    let dir_count = Arc::new(Mutex::new(0usize));
-    let total_size = Arc::new(Mutex::new(0u64));
-    let update_counter = Arc::new(Mutex::new(0usize));
+    // Счётчики для прогресса (атомарные для многопоточности)
+    let file_count = Arc::new(AtomicUsize::new(0));
+    let dir_count = Arc::new(AtomicUsize::new(0));
+    let total_size = Arc::new(AtomicUsize::new(0));
     
-    // Рекурсивная функция сканирования - один проход!
-    fn scan_recursive(
+    // Однопоточная рекурсивная функция для глубоких уровней
+    fn scan_recursive_single(
         path: &Path,
-        progress: &Arc<Mutex<ScanProgress>>,
         cancel: &Arc<AtomicBool>,
-        file_count: &Arc<Mutex<usize>>,
-        dir_count: &Arc<Mutex<usize>>,
-        total_size: &Arc<Mutex<u64>>,
-        update_counter: &Arc<Mutex<usize>>,
+        file_count: &Arc<AtomicUsize>,
+        dir_count: &Arc<AtomicUsize>,
+        total_size: &Arc<AtomicUsize>,
     ) -> Option<DirNode> {
         // Проверка отмены
         if cancel.load(Ordering::Relaxed) {
@@ -476,7 +511,7 @@ fn scan_directory(
         // Читаем содержимое директории
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
-            Err(_) => return Some(node), // Нет доступа - возвращаем пустую папку
+            Err(_) => return Some(node),
         };
         
         let mut children = Vec::new();
@@ -491,55 +526,32 @@ fn scan_directory(
                 Err(_) => continue,
             };
             
-            let entry_path = entry.path();
+            // Используем metadata из entry (быстрее!)
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
             
-            match entry.file_type() {
-                Ok(file_type) if file_type.is_dir() => {
-                    // Рекурсивно сканируем подпапку
-                    if let Some(child_node) = scan_recursive(
-                        &entry_path,
-                        progress,
-                        cancel,
-                        file_count,
-                        dir_count,
-                        total_size,
-                        update_counter,
-                    ) {
-                        dir_size += child_node.size;
-                        children.push(child_node);
-                        
-                        *dir_count.lock().unwrap() += 1;
-                    }
+            if metadata.is_dir() {
+                // Рекурсивно сканируем подпапку
+                if let Some(child_node) = scan_recursive_single(
+                    &entry.path(),
+                    cancel,
+                    file_count,
+                    dir_count,
+                    total_size,
+                ) {
+                    dir_size += child_node.size;
+                    children.push(child_node);
+                    dir_count.fetch_add(1, Ordering::Relaxed);
                 }
-                Ok(file_type) if file_type.is_file() => {
-                    // Добавляем размер файла
-                    if let Ok(metadata) = entry.metadata() {
-                        let file_size = metadata.len();
-                        dir_size += file_size;
-                        
-                        *file_count.lock().unwrap() += 1;
-                        *total_size.lock().unwrap() += file_size;
-                    }
-                }
-                _ => {}
-            }
-            
-            // Обновляем прогресс каждые 100 элементов
-            let mut counter = update_counter.lock().unwrap();
-            *counter += 1;
-            if *counter % 100 == 0 {
-                drop(counter);
-                
-                let mut prog = progress.lock().unwrap();
-                prog.current_path = entry_path.display().to_string();
-                prog.files_scanned = *file_count.lock().unwrap();
-                prog.dirs_scanned = *dir_count.lock().unwrap();
-                prog.total_size = *total_size.lock().unwrap();
+            } else if metadata.is_file() {
+                let file_size = metadata.len();
+                dir_size += file_size;
+                file_count.fetch_add(1, Ordering::Relaxed);
+                total_size.fetch_add(file_size as usize, Ordering::Relaxed);
             }
         }
-        
-        // Сортируем детей по размеру
-        children.sort_by(|a, b| b.size.cmp(&a.size));
         
         node.size = dir_size;
         node.children = children;
@@ -547,21 +559,184 @@ fn scan_directory(
         Some(node)
     }
     
-    let root_result = scan_recursive(
-        &path_buf,
-        &progress,
-        &cancel,
-        &file_count,
-        &dir_count,
-        &total_size,
-        &update_counter,
-    );
+    // Параллельная функция для первого уровня (использует rayon)
+    fn scan_recursive_parallel(
+        path: &Path,
+        cancel: &Arc<AtomicBool>,
+        file_count: &Arc<AtomicUsize>,
+        dir_count: &Arc<AtomicUsize>,
+        total_size: &Arc<AtomicUsize>,
+        depth: usize,
+    ) -> Option<DirNode> {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"))
+            .to_string();
+        
+        let mut node = DirNode::new(path.to_path_buf(), name, 0);
+        
+        let entries = match std::fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return Some(node),
+        };
+        
+        // Собираем все записи
+        let entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+        
+        let mut dir_size = 0u64;
+        let mut children = Vec::new();
+        
+        // На первых 2 уровнях используем параллелизм
+        if depth < 2 {
+            let results: Vec<_> = entries_vec
+                .par_iter()
+                .filter_map(|entry| {
+                    if cancel.load(Ordering::Relaxed) {
+                        return None;
+                    }
+                    
+                    let metadata = entry.metadata().ok()?;
+                    
+                    if metadata.is_dir() {
+                        let child = scan_recursive_parallel(
+                            &entry.path(),
+                            cancel,
+                            file_count,
+                            dir_count,
+                            total_size,
+                            depth + 1,
+                        )?;
+                        dir_count.fetch_add(1, Ordering::Relaxed);
+                        Some((child.size, Some(child)))
+                    } else if metadata.is_file() {
+                        let file_size = metadata.len();
+                        file_count.fetch_add(1, Ordering::Relaxed);
+                        total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+                        Some((file_size, None))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            
+            for (size, child_opt) in results {
+                dir_size += size;
+                if let Some(child) = child_opt {
+                    children.push(child);
+                }
+            }
+        } else {
+            // Глубже 2 уровней - однопоточно
+            for entry in entries_vec {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                
+                let metadata = match entry.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                
+                if metadata.is_dir() {
+                    if let Some(child_node) = scan_recursive_single(
+                        &entry.path(),
+                        cancel,
+                        file_count,
+                        dir_count,
+                        total_size,
+                    ) {
+                        dir_size += child_node.size;
+                        children.push(child_node);
+                        dir_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                } else if metadata.is_file() {
+                    let file_size = metadata.len();
+                    dir_size += file_size;
+                    file_count.fetch_add(1, Ordering::Relaxed);
+                    total_size.fetch_add(file_size as usize, Ordering::Relaxed);
+                }
+            }
+        }
+        
+        node.size = dir_size;
+        node.children = children;
+        
+        Some(node)
+    }
+    
+    // Сортировка после сканирования
+    fn sort_tree(node: &mut DirNode) {
+        node.children.sort_unstable_by(|a, b| b.size.cmp(&a.size));
+        for child in &mut node.children {
+            sort_tree(child);
+        }
+    }
+    
+    // Поток для обновления прогресса
+    let progress_clone = progress.clone();
+    let file_count_clone = file_count.clone();
+    let dir_count_clone = dir_count.clone();
+    let total_size_clone = total_size.clone();
+    let cancel_clone = cancel.clone();
+    
+    let progress_thread = thread::spawn(move || {
+        while !cancel_clone.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(200));
+            
+            let mut prog = progress_clone.lock().unwrap();
+            prog.files_scanned = file_count_clone.load(Ordering::Relaxed);
+            prog.dirs_scanned = dir_count_clone.load(Ordering::Relaxed);
+            prog.total_size = total_size_clone.load(Ordering::Relaxed) as u64;
+        }
+    });
+    
+    // Выбираем режим сканирования в зависимости от типа диска
+    let root_result = if use_parallel {
+        scan_recursive_parallel(
+            &path_buf,
+            &cancel,
+            &file_count,
+            &dir_count,
+            &total_size,
+            0,
+        )
+    } else {
+        scan_recursive_single(
+            &path_buf,
+            &cancel,
+            &file_count,
+            &dir_count,
+            &total_size,
+        )
+    };
+    
+    // Останавливаем поток прогресса
+    cancel.store(true, Ordering::Relaxed);
+    let _ = progress_thread.join();
+    cancel.store(false, Ordering::Relaxed);
     
     // Отправляем результат
     let elapsed = start_time.elapsed();
     
     match root_result {
         Some(mut root) => {
+            // Обновляем финальную статистику
+            {
+                let mut prog = progress.lock().unwrap();
+                prog.files_scanned = file_count.load(Ordering::Relaxed);
+                prog.dirs_scanned = dir_count.load(Ordering::Relaxed);
+                prog.total_size = total_size.load(Ordering::Relaxed) as u64;
+                prog.message = "Sorting...".to_string();
+            }
+            
+            // Сортируем дерево после сканирования
+            sort_tree(&mut root);
+            
             root.is_expanded = true;
             
             let mut prog = progress.lock().unwrap();
