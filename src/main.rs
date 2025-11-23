@@ -121,6 +121,7 @@ fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
+            .with_min_inner_size([1100.0, 600.0])
             .with_title("Cedar Folder Size")
             .with_icon(icon_data),
         persist_window: true,
@@ -150,7 +151,7 @@ fn main() -> Result<(), eframe::Error> {
             
             // Увеличиваем отступы и размеры элементов
             style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+            style.spacing.button_padding = egui::vec2(12.0, 8.0);
             style.spacing.indent = 20.0;
             style.spacing.interact_size = egui::vec2(50.0, 24.0);
             
@@ -225,9 +226,12 @@ enum ScanResult {
     Error(String),
 }
 
+#[derive(Clone)]
 struct DriveInfo {
     path: String,
-    size: u64,
+    name: String,
+    total_space: u64,
+    available_space: u64,
     kind: String,
 }
 
@@ -293,9 +297,12 @@ impl CedarApp {
         
         for disk in disks.list() {
             if let Some(path) = disk.mount_point().to_str() {
+                let name = disk.name().to_string_lossy().to_string();
                 drives.push(DriveInfo {
                     path: path.to_string(),
-                    size: disk.total_space(),
+                    name: if name.is_empty() { path.to_string() } else { name },
+                    total_space: disk.total_space(),
+                    available_space: disk.available_space(),
                     kind: format!("{:?}", disk.kind()),
                 });
             }
@@ -614,6 +621,7 @@ impl eframe::App for CedarApp {
             egui::menu::bar(ui, |ui| {
                 let menu_text = self.translations.get("menu");
                 let app_title = self.translations.get("app_title");
+                let home_page_text = self.translations.get("home_page");
                 let light_theme_text = self.translations.get("light_theme");
                 let dark_theme_text = self.translations.get("dark_theme");
                 let language_text = self.translations.get("language");
@@ -622,6 +630,15 @@ impl eframe::App for CedarApp {
                 let is_dark = self.config.dark_mode;
                 
                 ui.menu_button(format!("{} {}", regular::LIST, menu_text), |ui| {
+                    // Главная страница
+                    if ui.button(format!("{} {}", regular::HOUSE, home_page_text)).clicked() {
+                        self.root_node = None;
+                        self.selected_path = None;
+                        ui.close_menu();
+                    }
+                    
+                    ui.separator();
+                    
                     // Выбор темы
                     if ui.button(if is_dark { 
                         format!("{} {}", regular::SUN, light_theme_text)
@@ -674,7 +691,6 @@ impl eframe::App for CedarApp {
         let threads_label = self.translations.get("threads");
         let scanning_label = self.translations.get("scanning_label");
         let calculating_label = self.translations.get("calculating");
-        let select_path_label = self.translations.get("select_path");
         let available_drives_label = self.translations.get("available_drives");
         let selected_label = self.translations.get("selected");
         let no_selection_label = self.translations.get("no_selection");
@@ -690,7 +706,7 @@ impl eframe::App for CedarApp {
                 let current_display = self.available_drives
                     .iter()
                     .find(|d| d.path == self.scan_path)
-                    .map(|d| format!("{} ({})", d.path, format_size(d.size)))
+                    .map(|d| format!("{} ({})", d.path, format_size(d.total_space)))
                     .unwrap_or_else(|| self.scan_path.clone());
                 
                 egui::ComboBox::from_label("")
@@ -699,7 +715,7 @@ impl eframe::App for CedarApp {
                         for drive in &self.available_drives {
                             let label = format!("{} ({}) [{}]", 
                                 drive.path, 
-                                format_size(drive.size),
+                                format_size(drive.total_space),
                                 drive.kind
                             );
                             ui.selectable_value(&mut self.scan_path, drive.path.clone(), label);
@@ -719,8 +735,13 @@ impl eframe::App for CedarApp {
                     let button = egui::Button::image_and_text(
                         egui::Image::new(&self.icon_search).max_size(egui::vec2(16.0, 16.0)),
                         &scan_label
-                    );
-                    if ui.add(button).clicked() {
+                    )
+                    .min_size(egui::vec2(140.0, 0.0));
+                    let response = ui.add(button);
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if response.clicked() {
                         self.start_scan(self.scan_path.clone());
                     }
                 });
@@ -730,8 +751,13 @@ impl eframe::App for CedarApp {
                     let button = egui::Button::image_and_text(
                         egui::Image::new(&self.icon_stop).max_size(egui::vec2(16.0, 16.0)),
                         &stop_label
-                    );
-                    if ui.add(button).clicked() {
+                    )
+                    .min_size(egui::vec2(140.0, 0.0));
+                    let response = ui.add(button);
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if response.clicked() {
                         self.stop_scan();
                     }
                 });
@@ -810,20 +836,213 @@ impl eframe::App for CedarApp {
                         }
                     });
             } else if !self.is_scanning {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(200.0);
-                    ui.heading(format!("{} {}", regular::HAND_POINTING, &select_path_label));
-                    ui.add_space(20.0);
-                    ui.label(&available_drives_label);
-                    for drive in &self.available_drives {
-                        ui.label(format!("  {} {} - {} [{}]", 
-                            regular::HARD_DRIVE,
-                            drive.path, 
-                            format_size(drive.size),
-                            drive.kind
-                        ));
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.add_space(20.0);
+                        ui.heading(format!("{} {}", regular::HARD_DRIVE, &available_drives_label));
+                        ui.add_space(10.0);
+                        
+                        // Отображаем диски в виде блоков (карточек) вертикально
+                        let drives_clone = self.available_drives.clone();
+                        
+                        for drive in drives_clone.iter() {
+                            // Карточка для диска
+                            let used_space = drive.total_space.saturating_sub(drive.available_space);
+                            let usage_percent = if drive.total_space > 0 {
+                                (used_space as f64 / drive.total_space as f64) as f32
+                            } else {
+                                0.0
+                            };
+                            
+                            // Определяем иконку в зависимости от типа диска
+                            let disk_icon = if drive.kind.contains("SSD") {
+                                regular::HARD_DRIVES
+                            } else if drive.kind.contains("Removable") {
+                                regular::USB
+                            } else {
+                                regular::HARD_DRIVE
+                            };
+                            
+                            // Цвета для progressbar
+                            let progress_color = if usage_percent > 0.9 {
+                                egui::Color32::from_rgb(136, 0, 21)  // Красный #880015
+                            } else if usage_percent > 0.75 {
+                                egui::Color32::from_rgb(255, 127, 39)  // Оранжевый #FF7F27
+                            } else {
+                                if self.config.dark_mode {
+                                    egui::Color32::from_rgb(60, 130, 80)  // Приглушенный зелёный
+                                } else {
+                                    egui::Color32::from_rgb(80, 150, 100)
+                                }
+                            };
+                            
+                            // Рамка для карточки - более компактная
+                            egui::Frame::none()
+                                .fill(if self.config.dark_mode {
+                                    egui::Color32::from_gray(35)
+                                } else {
+                                    egui::Color32::from_rgb(230, 230, 230)  // #E6E6E6
+                                })
+                                .stroke(egui::Stroke::new(1.0, if self.config.dark_mode {
+                                    egui::Color32::from_gray(60)
+                                } else {
+                                    egui::Color32::from_gray(220)
+                                }))
+                                .rounding(6.0)
+                                .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                                .show(ui, |ui| {
+                                    // Горизонтальное разделение на левую и правую часть
+                                    ui.horizontal(|ui| {
+                                        // ЛЕВАЯ ЧАСТЬ - информация о диске
+                                        ui.vertical(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new(disk_icon).size(20.0));
+                                                ui.vertical(|ui| {
+                                                    ui.spacing_mut().item_spacing.y = 2.0;
+                                                    ui.label(egui::RichText::new(&drive.path).strong().size(16.0));
+                                                    ui.label(egui::RichText::new(&drive.name)
+                                                        .size(11.0)
+                                                        .color(ui.visuals().weak_text_color()));
+                                                });
+                                            });
+                                            
+                                            ui.add_space(4.0);
+                                            
+                                            // Тип диска
+                                            ui.label(egui::RichText::new(format!("{} {}", regular::DISC, &drive.kind))
+                                                .size(11.0)
+                                                .color(ui.visuals().weak_text_color()));
+                                        });
+                                        
+                                        ui.add_space(20.0);
+                                        
+                                        // ПРАВАЯ ЧАСТЬ - статистика и кнопка
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            // Кнопка сканирования - компактная
+                                            let base_color = if self.config.dark_mode {
+                                                egui::Color32::from_rgb(50, 100, 180)
+                                            } else {
+                                                egui::Color32::from_rgb(70, 130, 200)
+                                            };
+                                            
+                                            // Темно-синий цвет для рамки
+                                            let stroke_color = if self.config.dark_mode {
+                                                egui::Color32::from_rgb(30, 60, 120)
+                                            } else {
+                                                egui::Color32::from_rgb(40, 80, 140)
+                                            };
+                                            
+                                            // Настраиваем стиль кнопки
+                                            let mut button_style = ui.style_mut().clone();
+                                            button_style.visuals.widgets.inactive.bg_fill = base_color;
+                                            button_style.visuals.widgets.inactive.weak_bg_fill = base_color;
+                                            button_style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+                                            
+                                            // При наведении фон темнее на 20%
+                                            let hovered_color = egui::Color32::from_rgb(
+                                                (base_color.r() as f32 * 0.8) as u8,
+                                                (base_color.g() as f32 * 0.8) as u8,
+                                                (base_color.b() as f32 * 0.8) as u8,
+                                            );
+                                            button_style.visuals.widgets.hovered.bg_fill = hovered_color;
+                                            button_style.visuals.widgets.hovered.weak_bg_fill = hovered_color;
+                                            button_style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+                                            
+                                            // При нажатии еще темнее
+                                            let active_color = egui::Color32::from_rgb(
+                                                (base_color.r() as f32 * 0.7) as u8,
+                                                (base_color.g() as f32 * 0.7) as u8,
+                                                (base_color.b() as f32 * 0.7) as u8,
+                                            );
+                                            button_style.visuals.widgets.active.bg_fill = active_color;
+                                            button_style.visuals.widgets.active.weak_bg_fill = active_color;
+                                            button_style.visuals.widgets.active.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+                                            
+                                            ui.set_style(button_style);
+                                            
+                                            let button = egui::Button::new(
+                                                egui::RichText::new(format!("{} {}", regular::MAGNIFYING_GLASS, &scan_label))
+                                                    .color(egui::Color32::WHITE)
+                                            )
+                                                .min_size(egui::vec2(120.0, 32.0));
+                                            
+                                            let response = ui.add(button);
+                                            if response.hovered() {
+                                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                            }
+                                            if response.clicked() {
+                                                self.scan_path = drive.path.clone();
+                                                self.start_scan(drive.path.clone());
+                                            }
+                                            
+                                            ui.add_space(10.0);
+                                            
+                                            // Статистика и progressbar
+                                            ui.vertical(|ui| {
+                                                ui.spacing_mut().item_spacing.y = 3.0;
+                                                
+                                                // Progress bar с рамкой
+                                                let mut progress = egui::ProgressBar::new(usage_percent)
+                                                    .text(egui::RichText::new(format!("{:.1}%", usage_percent * 100.0))
+                                                        .color(egui::Color32::BLACK)
+                                                        .size(11.0))
+                                                    .fill(progress_color)
+                                                    .desired_width(200.0);
+                                                
+                                                // Применяем стиль с рамкой
+                                                ui.style_mut().visuals.widgets.inactive.bg_stroke = egui::Stroke::new(
+                                                    1.0,
+                                                    if self.config.dark_mode {
+                                                        egui::Color32::WHITE
+                                                    } else {
+                                                        egui::Color32::BLACK
+                                                    }
+                                                );
+                                                ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::new(
+                                                    1.0,
+                                                    if self.config.dark_mode {
+                                                        egui::Color32::WHITE
+                                                    } else {
+                                                        egui::Color32::BLACK
+                                                    }
+                                                );
+                                                
+                                                ui.add(progress);
+                                                
+                                                // Информация о размерах - компактно
+                                                ui.horizontal(|ui| {
+                                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                                    ui.label(egui::RichText::new(format_size(used_space))
+                                                        .size(11.0)
+                                                        .strong());
+                                                    ui.label(egui::RichText::new("/")
+                                                        .size(11.0)
+                                                        .color(ui.visuals().weak_text_color()));
+                                                    ui.label(egui::RichText::new(format_size(drive.total_space))
+                                                        .size(11.0)
+                                                        .color(ui.visuals().weak_text_color()));
+                                                    ui.label(egui::RichText::new("•")
+                                                        .size(11.0)
+                                                        .color(ui.visuals().weak_text_color()));
+                                                    ui.label(egui::RichText::new(format!("{} свободно", format_size(drive.available_space)))
+                                                        .size(11.0)
+                                                        .color(if self.config.dark_mode {
+                                                            egui::Color32::from_rgb(100, 180, 120)
+                                                        } else {
+                                                            egui::Color32::from_rgb(60, 140, 80)
+                                                        }));
+                                                });
+                                            });
+                                        });
+                                    });
+                                });
+                            
+                            ui.add_space(8.0);
+                        }
+                        
+                        ui.add_space(20.0);
+                    });
             }
         });
         
@@ -956,6 +1175,8 @@ impl eframe::App for CedarApp {
                 let mut delete_confirmed = false;
                 let mut cancelled = false;
                 
+                let red_color = egui::Color32::from_rgb(198, 61, 53); // #c63d35
+                
                 egui::Window::new("⚠ Подтверждение удаления")
                     .collapsible(false)
                     .resizable(false)
@@ -975,7 +1196,14 @@ impl eframe::App for CedarApp {
                             ui.add_space(15.0);
                             
                             ui.horizontal(|ui| {
-                                if ui.button(format!("{} Удалить в корзину", regular::TRASH)).clicked() {
+                                // Красная кнопка удаления
+                                let delete_button = egui::Button::new(
+                                    egui::RichText::new(format!("{} Удалить в корзину", regular::TRASH))
+                                        .color(egui::Color32::WHITE)
+                                )
+                                .fill(red_color);
+                                
+                                if ui.add(delete_button).clicked() {
                                     delete_confirmed = true;
                                 }
                                 

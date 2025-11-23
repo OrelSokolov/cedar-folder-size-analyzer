@@ -29,7 +29,7 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="9.5164788"
-     inkscape:cx="6.304853"
+     inkscape:cx="6.2523126"
      inkscape:cy="9.1420369"
      inkscape:window-width="1536"
      inkscape:window-height="890"
@@ -40,5 +40,5 @@
   <path
      d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
      id="path1"
-     style="fill:#ffcc00;stroke:#000000;stroke-opacity:1;fill-opacity:1" />
+     style="fill:#ffc100;stroke:#000000;stroke-opacity:1;fill-opacity:1;stroke-width:1;stroke-dasharray:none" />
 </svg>
