@@ -8,19 +8,19 @@
    stroke-width="2"
    stroke-linecap="round"
    stroke-linejoin="round"
-   class="lucide lucide-cpu-icon lucide-cpu"
+   class="lucide lucide-octagon-x-icon lucide-octagon-x"
    version="1.1"
-   id="svg13"
-   sodipodi:docname="cpu.svg"
+   id="svg3"
+   sodipodi:docname="stop.svg"
    inkscape:version="1.4.2 (f4327f4, 2025-05-13)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <defs
-     id="defs13" />
+     id="defs3" />
   <sodipodi:namedview
-     id="namedview13"
+     id="namedview3"
      pagecolor="#ffffff"
      bordercolor="#000000"
      borderopacity="0.25"
@@ -36,56 +36,17 @@
      inkscape:window-x="-6"
      inkscape:window-y="-6"
      inkscape:window-maximized="1"
-     inkscape:current-layer="svg13" />
+     inkscape:current-layer="svg3" />
   <path
-     d="M12 20v2"
-     id="path1" />
+     d="M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z"
+     id="path2"
+     style="fill:#ff5555;stroke:#cccccc;stroke-opacity:1" />
   <path
-     d="M12 2v2"
-     id="path2" />
+     d="m15 9-6 6"
+     id="path1"
+     style="stroke:#ffffff;stroke-opacity:1" />
   <path
-     d="M17 20v2"
-     id="path3" />
-  <path
-     d="M17 2v2"
-     id="path4" />
-  <path
-     d="M2 12h2"
-     id="path5" />
-  <path
-     d="M2 17h2"
-     id="path6" />
-  <path
-     d="M2 7h2"
-     id="path7" />
-  <path
-     d="M20 12h2"
-     id="path8" />
-  <path
-     d="M20 17h2"
-     id="path9" />
-  <path
-     d="M20 7h2"
-     id="path10" />
-  <path
-     d="M7 20v2"
-     id="path11" />
-  <path
-     d="M7 2v2"
-     id="path12" />
-  <rect
-     x="4"
-     y="4"
-     width="16"
-     height="16"
-     rx="2"
-     id="rect12"
-     style="fill:#c8c4b7" />
-  <rect
-     x="8"
-     y="8"
-     width="8"
-     height="8"
-     rx="1"
-     id="rect13" />
+     d="m9 9 6 6"
+     id="path3"
+     style="stroke:#ffffff;stroke-opacity:1" />
 </svg>

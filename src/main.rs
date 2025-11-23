@@ -12,12 +12,17 @@ use sysinfo::Disks;
 mod i18n;
 use i18n::{Language, Translations};
 
-// Встраиваем SVG иконки
-const ICON_FOLDER: &[u8] = include_bytes!("icons/folder.svg");
-const ICON_FILE: &[u8] = include_bytes!("icons/file.svg");
-const ICON_SEARCH: &[u8] = include_bytes!("icons/search.svg");
-const ICON_STOP: &[u8] = include_bytes!("icons/stop.svg");
-const ICON_CPU: &[u8] = include_bytes!("icons/cpu.svg");
+// Встраиваем SVG иконки для тёмной темы
+const ICON_FOLDER_DARK: &[u8] = include_bytes!("icons/dark/folder.svg");
+const ICON_FILE_DARK: &[u8] = include_bytes!("icons/dark/file.svg");
+const ICON_SEARCH_DARK: &[u8] = include_bytes!("icons/dark/search.svg");
+const ICON_STOP_DARK: &[u8] = include_bytes!("icons/dark/stop.svg");
+
+// Встраиваем SVG иконки для светлой темы
+const ICON_FOLDER_LIGHT: &[u8] = include_bytes!("icons/light/folder.svg");
+const ICON_FILE_LIGHT: &[u8] = include_bytes!("icons/light/file.svg");
+const ICON_SEARCH_LIGHT: &[u8] = include_bytes!("icons/light/search.svg");
+const ICON_STOP_LIGHT: &[u8] = include_bytes!("icons/light/stop.svg");
 
 // Функция для загрузки SVG как текстуры
 fn load_svg_as_texture(
@@ -67,6 +72,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_title("Baobab-RS - Disk Usage Analyzer"),
+        persist_window: true,
         ..Default::default()
     };
     
@@ -215,7 +221,6 @@ struct BaobabApp {
     icon_file: egui::TextureHandle,
     icon_search: egui::TextureHandle,
     icon_stop: egui::TextureHandle,
-    icon_cpu: egui::TextureHandle,
 }
 
 impl BaobabApp {
@@ -250,12 +255,17 @@ impl BaobabApp {
             .or_else(|| drives.first().map(|d| d.path.clone()))
             .unwrap_or_else(|| String::from("C:\\"));
         
-        // Загружаем SVG иконки как текстуры
-        let icon_folder = load_svg_as_texture(&cc.egui_ctx, ICON_FOLDER, "icon_folder", 20);
-        let icon_file = load_svg_as_texture(&cc.egui_ctx, ICON_FILE, "icon_file", 20);
-        let icon_search = load_svg_as_texture(&cc.egui_ctx, ICON_SEARCH, "icon_search", 20);
-        let icon_stop = load_svg_as_texture(&cc.egui_ctx, ICON_STOP, "icon_stop", 20);
-        let icon_cpu = load_svg_as_texture(&cc.egui_ctx, ICON_CPU, "icon_cpu", 20);
+        // Загружаем SVG иконки как текстуры в зависимости от темы
+        let (folder_data, file_data, search_data, stop_data) = if config.dark_mode {
+            (ICON_FOLDER_DARK, ICON_FILE_DARK, ICON_SEARCH_DARK, ICON_STOP_DARK)
+        } else {
+            (ICON_FOLDER_LIGHT, ICON_FILE_LIGHT, ICON_SEARCH_LIGHT, ICON_STOP_LIGHT)
+        };
+        
+        let icon_folder = load_svg_as_texture(&cc.egui_ctx, folder_data, "icon_folder", 20);
+        let icon_file = load_svg_as_texture(&cc.egui_ctx, file_data, "icon_file", 20);
+        let icon_search = load_svg_as_texture(&cc.egui_ctx, search_data, "icon_search", 20);
+        let icon_stop = load_svg_as_texture(&cc.egui_ctx, stop_data, "icon_stop", 20);
         
         Self {
             root_node: None,
@@ -280,13 +290,26 @@ impl BaobabApp {
             icon_file,
             icon_search,
             icon_stop,
-            icon_cpu,
         }
     }
     
     fn set_language(&mut self, lang: Language) {
         self.config.language = lang;
         self.translations = Translations::load(lang);
+    }
+    
+    fn update_icons(&mut self, ctx: &egui::Context) {
+        // Обновляем иконки при смене темы
+        let (folder_data, file_data, search_data, stop_data) = if self.config.dark_mode {
+            (ICON_FOLDER_DARK, ICON_FILE_DARK, ICON_SEARCH_DARK, ICON_STOP_DARK)
+        } else {
+            (ICON_FOLDER_LIGHT, ICON_FILE_LIGHT, ICON_SEARCH_LIGHT, ICON_STOP_LIGHT)
+        };
+        
+        self.icon_folder = load_svg_as_texture(ctx, folder_data, "icon_folder", 20);
+        self.icon_file = load_svg_as_texture(ctx, file_data, "icon_file", 20);
+        self.icon_search = load_svg_as_texture(ctx, search_data, "icon_search", 20);
+        self.icon_stop = load_svg_as_texture(ctx, stop_data, "icon_stop", 20);
     }
 }
 
@@ -552,6 +575,7 @@ impl eframe::App for BaobabApp {
                         format!("{} {}", regular::MOON_STARS, dark_theme_text)
                     }).clicked() {
                         self.config.dark_mode = !self.config.dark_mode;
+                        self.update_icons(ctx);
                         ui.close_menu();
                     }
                     
@@ -684,8 +708,7 @@ impl eframe::App for BaobabApp {
                             ui.label(format!("{} {}: {}", regular::DISC, &type_label, progress.disk_type));
                             ui.separator();
                         }
-                        ui.add(egui::Image::new(&self.icon_cpu).max_size(egui::vec2(16.0, 16.0)));
-                        ui.label(format!("{}: {}", &threads_label, progress.thread_count));
+                        ui.label(format!("{} {}: {}", regular::CPU, &threads_label, progress.thread_count));
                     });
                     
                     // Current path
