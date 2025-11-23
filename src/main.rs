@@ -1,4 +1,5 @@
 use eframe::egui;
+use egui_phosphor::regular;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,11 @@ fn main() -> Result<(), eframe::Error> {
         "Baobab-RS",
         options,
         Box::new(|cc| {
+            // Загружаем шрифт Phosphor
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            
             // Настройка стиля для увеличения размеров элементов
             let mut style = (*cc.egui_ctx.style()).clone();
             
@@ -309,8 +315,8 @@ fn render_tree_node_static(
         
         // Кнопка раскрытия только для папок с детьми
         if !node.is_file && has_children {
-            // Используем простые + и - которые работают везде
-            let expand_icon = if node.is_expanded { "−" } else { "+" };
+            // Используем иконки phosphor
+            let expand_icon = if node.is_expanded { regular::CARET_DOWN } else { regular::CARET_RIGHT };
             
             // Обычная кнопка вместо small_button для большего размера
             if ui.button(expand_icon).clicked() {
@@ -320,8 +326,12 @@ fn render_tree_node_static(
             ui.add_space(24.0);
         }
         
-        // Иконка: всегда 📁 для папок, 📄 для файлов
-        let icon = if node.is_file { "📄" } else { "📁" };
+        // Иконка: всегда папка для папок, файл для файлов
+        let icon = if node.is_file { 
+            regular::FILE_TEXT 
+        } else { 
+            regular::FOLDER 
+        };
         
         let size_str = format_size(node.size);
         let label = format!("{} {} - {}", icon, node.name, size_str);
@@ -343,19 +353,19 @@ fn render_tree_node_static(
         
         // Контекстное меню (правый клик)
         response.context_menu(|ui| {
-            if ui.button("🗑 Удалить в корзину").clicked() {
+            if ui.button(format!("{} Удалить в корзину", regular::TRASH)).clicked() {
                 *path_to_delete = Some(node.path.clone());
                 ui.close_menu();
             }
             
-            if ui.button("📂 Открыть в проводнике").clicked() {
+            if ui.button(format!("{} Открыть в проводнике", regular::FOLDER_OPEN)).clicked() {
                 if let Err(e) = open::that(&node.path) {
                     eprintln!("Failed to open path: {}", e);
                 }
                 ui.close_menu();
             }
             
-            if ui.button("📋 Копировать путь").clicked() {
+            if ui.button(format!("{} Копировать путь", regular::COPY)).clicked() {
                 ui.output_mut(|o| o.copied_text = node.path.display().to_string());
                 ui.close_menu();
             }
@@ -402,22 +412,26 @@ impl eframe::App for BaobabApp {
         // Меню-бар
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("☰ Меню", |ui| {
-                    if ui.button(if self.dark_mode { "☀ Светлая тема" } else { "🌙 Тёмная тема" }).clicked() {
+                ui.menu_button(format!("{} Меню", regular::LIST), |ui| {
+                    if ui.button(if self.dark_mode { 
+                        format!("{} Светлая тема", regular::SUN) 
+                    } else { 
+                        format!("{} Тёмная тема", regular::MOON_STARS) 
+                    }).clicked() {
                         self.dark_mode = !self.dark_mode;
                         ui.close_menu();
                     }
                     
                     ui.separator();
                     
-                    if ui.button("ℹ О программе").clicked() {
+                    if ui.button(format!("{} О программе", regular::INFO)).clicked() {
                         self.show_about_window = true;
                         ui.close_menu();
                     }
                 });
                 
                 ui.separator();
-                ui.heading("🌳 Baobab-RS - Disk Usage Analyzer");
+                ui.heading(format!("{} Baobab-RS - Disk Usage Analyzer", regular::TREE_STRUCTURE));
             });
         });
         
@@ -449,7 +463,7 @@ impl eframe::App for BaobabApp {
                 
                 ui.text_edit_singleline(&mut self.scan_path);
                 
-                if ui.button("📂 Browse").clicked() {
+                if ui.button(format!("{} Browse", regular::FOLDER_OPEN)).clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.scan_path = path.display().to_string();
                     }
@@ -457,7 +471,7 @@ impl eframe::App for BaobabApp {
                 
                 let scan_button = ui.add_enabled(
                     !self.is_scanning,
-                    egui::Button::new("🔍 Scan"),
+                    egui::Button::new(format!("{} Scan", regular::MAGNIFYING_GLASS)),
                 );
                 
                 if scan_button.clicked() {
@@ -466,7 +480,7 @@ impl eframe::App for BaobabApp {
                 
                 let stop_button = ui.add_enabled(
                     self.is_scanning,
-                    egui::Button::new("⏹ Stop"),
+                    egui::Button::new(format!("{} Stop", regular::STOP)),
                 );
                 
                 if stop_button.clicked() {
@@ -485,23 +499,23 @@ impl eframe::App for BaobabApp {
                     
                     // Progress details
                     ui.horizontal(|ui| {
-                        ui.label(format!("📄 Files: {}", progress.files_scanned));
+                        ui.label(format!("{} Files: {}", regular::FILE, progress.files_scanned));
                         ui.separator();
-                        ui.label(format!("📁 Directories: {}", progress.dirs_scanned));
+                        ui.label(format!("{} Directories: {}", regular::FOLDER, progress.dirs_scanned));
                         ui.separator();
-                        ui.label(format!("💾 Scanned: {}", format_size(progress.total_size)));
+                        ui.label(format!("{} Scanned: {}", regular::HARD_DRIVE, format_size(progress.total_size)));
                     });
                     
                     ui.horizontal(|ui| {
                         if progress.disk_size > 0 {
-                            ui.label(format!("📦 Disk: {}", format_size(progress.disk_size)));
+                            ui.label(format!("{} Disk: {}", regular::DATABASE, format_size(progress.disk_size)));
                             ui.separator();
                         }
                         if !progress.disk_type.is_empty() {
-                            ui.label(format!("💿 Type: {}", progress.disk_type));
+                            ui.label(format!("{} Type: {}", regular::DISC, progress.disk_type));
                             ui.separator();
                         }
-                        ui.label(format!("🧵 Threads: {}", progress.thread_count));
+                        ui.label(format!("{} Threads: {}", regular::CPU, progress.thread_count));
                     });
                     
                     // Current path
@@ -549,11 +563,12 @@ impl eframe::App for BaobabApp {
             } else if !self.is_scanning {
                 ui.vertical_centered(|ui| {
                     ui.add_space(200.0);
-                    ui.heading("👈 Select a path and click 'Scan' to begin");
+                    ui.heading(format!("{} Select a path and click 'Scan' to begin", regular::HAND_POINTING));
                     ui.add_space(20.0);
                     ui.label("Available drives:");
                     for drive in &self.available_drives {
-                        ui.label(format!("  • {} - {} [{}]", 
+                        ui.label(format!("  {} {} - {} [{}]", 
+                            regular::HARD_DRIVE,
                             drive.path, 
                             format_size(drive.size),
                             drive.kind
@@ -711,11 +726,11 @@ impl eframe::App for BaobabApp {
                             ui.add_space(15.0);
                             
                             ui.horizontal(|ui| {
-                                if ui.button("🗑 Удалить в корзину").clicked() {
+                                if ui.button(format!("{} Удалить в корзину", regular::TRASH)).clicked() {
                                     delete_confirmed = true;
                                 }
                                 
-                                if ui.button("Отмена").clicked() {
+                                if ui.button(format!("{} Отмена", regular::X)).clicked() {
                                     cancelled = true;
                                 }
                             });
@@ -766,7 +781,7 @@ impl eframe::App for BaobabApp {
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
-                        ui.heading("🌳 Baobab-RS");
+                        ui.heading(format!("{} Baobab-RS", regular::TREE_STRUCTURE));
                         ui.add_space(10.0);
                         
                         ui.label("Анализатор использования дискового пространства");
@@ -777,19 +792,19 @@ impl eframe::App for BaobabApp {
                         ui.add_space(10.0);
                         
                         ui.label("Версия: 0.1.0");
-                        ui.label("Язык: Rust 🦀");
-                        ui.label("GUI: egui");
+                        ui.label(format!("{} Язык: Rust", regular::CODE));
+                        ui.label(format!("{} GUI: egui + phosphor", regular::PALETTE));
                         ui.add_space(5.0);
                         
                         ui.separator();
                         ui.add_space(10.0);
                         
-                        ui.label("✨ Возможности:");
-                        ui.label("• Быстрое сканирование дисков и папок");
-                        ui.label("• Древовидное отображение структуры");
-                        ui.label("• Автоопределение типа диска (SSD/HDD)");
-                        ui.label("• Адаптивная многопоточность");
-                        ui.label("• Анализ скорости сканирования");
+                        ui.label(format!("{} Возможности:", regular::SPARKLE));
+                        ui.label(format!("  {} Быстрое сканирование дисков и папок", regular::LIGHTNING));
+                        ui.label(format!("  {} Древовидное отображение структуры", regular::TREE_STRUCTURE));
+                        ui.label(format!("  {} Автоопределение типа диска (SSD/HDD)", regular::HARD_DRIVES));
+                        ui.label(format!("  {} Адаптивная многопоточность", regular::CPU));
+                        ui.label(format!("  {} Анализ скорости сканирования", regular::GAUGE));
                         ui.add_space(10.0);
                         
                         ui.separator();
@@ -797,13 +812,13 @@ impl eframe::App for BaobabApp {
                         
                         ui.horizontal(|ui| {
                             ui.label("Создано с");
-                            ui.label(egui::RichText::new("❤").color(egui::Color32::RED));
+                            ui.label(egui::RichText::new(regular::HEART).color(egui::Color32::RED));
                             ui.label("на Rust");
                         });
                         
                         ui.add_space(10.0);
                         
-                        if ui.button("Закрыть").clicked() {
+                        if ui.button(format!("{} Закрыть", regular::X)).clicked() {
                             self.show_about_window = false;
                         }
                         
