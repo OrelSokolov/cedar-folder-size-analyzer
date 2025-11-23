@@ -84,6 +84,12 @@ enum ScanResult {
     Error(String),
 }
 
+struct DriveInfo {
+    path: String,
+    size: u64,
+    kind: String,
+}
+
 struct BaobabApp {
     root_node: Option<DirNode>,
     selected_path: Option<PathBuf>,
@@ -92,8 +98,12 @@ struct BaobabApp {
     scan_progress: Arc<Mutex<ScanProgress>>,
     scan_result: Arc<Mutex<Option<ScanResult>>>,
     scan_cancel: Arc<AtomicBool>,
-    available_drives: Vec<String>,
+    available_drives: Vec<DriveInfo>,
     last_scan_duration: Option<Duration>,
+    last_scan_size: u64,
+    scan_speed_mbps: f64,
+    dark_mode: bool,
+    show_about_window: bool,
 }
 
 impl Default for BaobabApp {
@@ -102,25 +112,35 @@ impl Default for BaobabApp {
         let disks = Disks::new_with_refreshed_list();
         
         for disk in disks.list() {
-            if let Some(name) = disk.mount_point().to_str() {
-                drives.push(name.to_string());
+            if let Some(path) = disk.mount_point().to_str() {
+                drives.push(DriveInfo {
+                    path: path.to_string(),
+                    size: disk.total_space(),
+                    kind: format!("{:?}", disk.kind()),
+                });
             }
         }
+        
+        let default_path = if !drives.is_empty() { 
+            drives[0].path.clone()
+        } else { 
+            String::from("C:\\") 
+        };
         
         Self {
             root_node: None,
             selected_path: None,
-            scan_path: if !drives.is_empty() { 
-                drives[0].clone() 
-            } else { 
-                String::from("C:\\") 
-            },
+            scan_path: default_path,
             is_scanning: false,
             scan_progress: Arc::new(Mutex::new(ScanProgress::default())),
             scan_result: Arc::new(Mutex::new(None)),
             scan_cancel: Arc::new(AtomicBool::new(false)),
             available_drives: drives,
             last_scan_duration: None,
+            last_scan_size: 0,
+            scan_speed_mbps: 0.0,
+            dark_mode: true,
+            show_about_window: false,
         }
     }
 }
@@ -209,6 +229,8 @@ fn get_disk_size(path: &str) -> u64 {
     get_disk_info(path).0
 }
 
+const MAX_VISIBLE_CHILDREN: usize = 200;
+
 fn render_tree_node_static(
     ui: &mut egui::Ui,
     node: &mut DirNode,
@@ -223,8 +245,10 @@ fn render_tree_node_static(
         let has_children = !node.children.is_empty();
         
         if has_children {
-            let arrow = if node.is_expanded { "▼" } else { "▶" };
-            if ui.button(arrow).clicked() {
+            // Используем простые + и - которые работают везде
+            let icon = if node.is_expanded { "−" } else { "+" };
+            
+            if ui.small_button(icon).clicked() {
                 node.is_expanded = !node.is_expanded;
             }
         } else {
@@ -241,38 +265,99 @@ fn render_tree_node_static(
             label,
         );
         
+        // Одиночный клик - выбор
         if response.clicked() {
             *selected_path = Some(node.path.clone());
+        }
+        
+        // Двойной клик - раскрытие/свёртывание (только для папок с детьми)
+        if has_children && response.double_clicked() {
+            node.is_expanded = !node.is_expanded;
         }
         
         response.on_hover_text(node.path.display().to_string());
     });
     
     if node.is_expanded {
-        for child in &mut node.children {
+        let total_children = node.children.len();
+        
+        // Показываем только первые MAX_VISIBLE_CHILDREN элементов
+        for child in node.children.iter_mut().take(MAX_VISIBLE_CHILDREN) {
             render_tree_node_static(ui, child, depth + 1, selected_path);
+        }
+        
+        // Если элементов больше, показываем индикатор
+        if total_children > MAX_VISIBLE_CHILDREN {
+            let hidden_count = total_children - MAX_VISIBLE_CHILDREN;
+            let child_indent = (depth + 1) as f32 * 20.0;
+            
+            ui.horizontal(|ui| {
+                ui.add_space(child_indent);
+                ui.add_space(20.0); // Вместо стрелки
+                ui.label(
+                    egui::RichText::new(format!("... еще {} элементов", hidden_count))
+                        .italics()
+                        .color(ui.visuals().weak_text_color())
+                );
+            });
         }
     }
 }
 
 impl eframe::App for BaobabApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
+        // Применяем тему
+        if self.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+        
+        // Меню-бар
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("☰ Меню", |ui| {
+                    if ui.button(if self.dark_mode { "☀ Светлая тема" } else { "🌙 Тёмная тема" }).clicked() {
+                        self.dark_mode = !self.dark_mode;
+                        ui.close_menu();
+                    }
+                    
+                    ui.separator();
+                    
+                    if ui.button("ℹ О программе").clicked() {
+                        self.show_about_window = true;
+                        ui.close_menu();
+                    }
+                });
+                
+                ui.separator();
                 ui.heading("🌳 Baobab-RS - Disk Usage Analyzer");
             });
+        });
+        
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(5.0);
-            ui.separator();
             
             ui.horizontal(|ui| {
                 ui.label("Path:");
                 
+                // Находим текущий диск для отображения
+                let current_display = self.available_drives
+                    .iter()
+                    .find(|d| d.path == self.scan_path)
+                    .map(|d| format!("{} ({})", d.path, format_size(d.size)))
+                    .unwrap_or_else(|| self.scan_path.clone());
+                
                 egui::ComboBox::from_label("")
-                    .selected_text(&self.scan_path)
+                    .selected_text(&current_display)
                     .show_ui(ui, |ui| {
                         for drive in &self.available_drives {
-                            ui.selectable_value(&mut self.scan_path, drive.clone(), drive);
+                            let label = format!("{} ({}) [{}]", 
+                                drive.path, 
+                                format_size(drive.size),
+                                drive.kind
+                            );
+                            ui.selectable_value(&mut self.scan_path, drive.path.clone(), label);
                         }
                     });
                 
@@ -384,7 +469,11 @@ impl eframe::App for BaobabApp {
                     ui.add_space(20.0);
                     ui.label("Available drives:");
                     for drive in &self.available_drives {
-                        ui.label(format!("  • {}", drive));
+                        ui.label(format!("  • {} - {} [{}]", 
+                            drive.path, 
+                            format_size(drive.size),
+                            drive.kind
+                        ));
                     }
                 });
             }
@@ -400,14 +489,53 @@ impl eframe::App for BaobabApp {
                 }
                 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Анализ производительности
+                    if self.scan_speed_mbps > 0.0 {
+                        ui.separator();
+                        
+                        // Типичные скорости SSD для сравнения
+                        let typical_ssd_speed = 500.0; // MB/s типичный SATA SSD
+                        let nvme_speed = 3500.0; // MB/s NVMe SSD
+                        
+                        let efficiency_percent = (self.scan_speed_mbps / typical_ssd_speed * 100.0).min(100.0);
+                        
+                        let speed_color = if self.scan_speed_mbps > 200.0 {
+                            egui::Color32::GREEN
+                        } else if self.scan_speed_mbps > 100.0 {
+                            egui::Color32::YELLOW
+                        } else {
+                            egui::Color32::LIGHT_RED
+                        };
+                        
+                        ui.colored_label(
+                            speed_color,
+                            format!("⚡ {:.1} MB/s", self.scan_speed_mbps)
+                        );
+                        
+                        // Показываем эффективность
+                        ui.label(format!("(~{:.0}% of SATA SSD)", efficiency_percent))
+                            .on_hover_text(format!(
+                                "Scan speed: {:.1} MB/s\n\
+                                Typical SATA SSD: ~{} MB/s\n\
+                                Typical NVMe SSD: ~{} MB/s\n\
+                                \n\
+                                Note: Scan speed limited by:\n\
+                                - Metadata reading (not sequential)\n\
+                                - File system overhead\n\
+                                - Small file processing\n\
+                                - CPU processing time",
+                                self.scan_speed_mbps, typical_ssd_speed, nvme_speed
+                            ));
+                    }
+                    
                     if let Some(duration) = self.last_scan_duration {
                         ui.separator();
-                        ui.label(format!("⏱ Scan time: {:.2}s", duration.as_secs_f64()));
+                        ui.label(format!("⏱ {:.2}s", duration.as_secs_f64()));
                     }
                     
                     if let Some(root) = &self.root_node {
                         ui.separator();
-                        ui.label(format!("💾 Total size: {}", format_size(root.size)));
+                        ui.label(format!("💾 {}", format_size(root.size)));
                     }
                 });
             });
@@ -420,6 +548,7 @@ impl eframe::App for BaobabApp {
                     match scan_result {
                         ScanResult::Complete(node) => {
                             self.is_scanning = false;
+                            self.last_scan_size = node.size;
                             self.root_node = Some(node);
                             
                             // Получаем время сканирования из прогресса
@@ -429,6 +558,12 @@ impl eframe::App for BaobabApp {
                                     if let Some(secs_str) = duration_str.strip_suffix("s") {
                                         if let Ok(secs) = secs_str.parse::<f64>() {
                                             self.last_scan_duration = Some(Duration::from_secs_f64(secs));
+                                            
+                                            // Рассчитываем скорость сканирования
+                                            if secs > 0.0 {
+                                                let size_mb = self.last_scan_size as f64 / (1024.0 * 1024.0);
+                                                self.scan_speed_mbps = size_mb / secs;
+                                            }
                                         }
                                     }
                                 }
@@ -437,10 +572,14 @@ impl eframe::App for BaobabApp {
                         ScanResult::Cancelled => {
                             self.is_scanning = false;
                             self.last_scan_duration = None;
+                            self.last_scan_size = 0;
+                            self.scan_speed_mbps = 0.0;
                         }
                         ScanResult::Error(err) => {
                             self.is_scanning = false;
                             self.last_scan_duration = None;
+                            self.last_scan_size = 0;
+                            self.scan_speed_mbps = 0.0;
                             eprintln!("Scan error: {}", err);
                         }
                         ScanResult::InProgress => {
@@ -451,6 +590,61 @@ impl eframe::App for BaobabApp {
                 }
             }
             ctx.request_repaint();
+        }
+        
+        // Окно "О программе"
+        if self.show_about_window {
+            egui::Window::new("О программе")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(10.0);
+                        ui.heading("🌳 Baobab-RS");
+                        ui.add_space(10.0);
+                        
+                        ui.label("Анализатор использования дискового пространства");
+                        ui.label("для Windows");
+                        ui.add_space(10.0);
+                        
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        ui.label("Версия: 0.1.0");
+                        ui.label("Язык: Rust 🦀");
+                        ui.label("GUI: egui");
+                        ui.add_space(5.0);
+                        
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        ui.label("✨ Возможности:");
+                        ui.label("• Быстрое сканирование дисков и папок");
+                        ui.label("• Древовидное отображение структуры");
+                        ui.label("• Автоопределение типа диска (SSD/HDD)");
+                        ui.label("• Адаптивная многопоточность");
+                        ui.label("• Анализ скорости сканирования");
+                        ui.add_space(10.0);
+                        
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Создано с");
+                            ui.label(egui::RichText::new("❤").color(egui::Color32::RED));
+                            ui.label("на Rust");
+                        });
+                        
+                        ui.add_space(10.0);
+                        
+                        if ui.button("Закрыть").clicked() {
+                            self.show_about_window = false;
+                        }
+                        
+                        ui.add_space(10.0);
+                    });
+                });
         }
     }
 }
