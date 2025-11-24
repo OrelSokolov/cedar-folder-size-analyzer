@@ -124,7 +124,6 @@ fn main() -> Result<(), eframe::Error> {
             .with_min_inner_size([1100.0, 600.0])
             .with_title("Cedar Folder Size")
             .with_icon(icon_data),
-        persist_window: true,
         ..Default::default()
     };
     
@@ -280,14 +279,54 @@ struct CedarApp {
 }
 
 impl CedarApp {
+    fn save_config_to_file(&self) {
+        // Определяем путь к файлу конфигурации
+        if let Some(data_dir) = dirs::data_dir() {
+            let config_dir = data_dir.join("cedar-folder-size-analyzer");
+            
+            // Создаем директорию, если её нет
+            if let Err(e) = std::fs::create_dir_all(&config_dir) {
+                eprintln!("Failed to create config directory: {}", e);
+                return;
+            }
+            
+            let config_file = config_dir.join("config.json");
+            
+            // Сохраняем конфигурацию в файл
+            if let Ok(json) = serde_json::to_string_pretty(&self.config) {
+                if let Err(e) = std::fs::write(&config_file, json) {
+                    eprintln!("Failed to save config: {}", e);
+                }
+            }
+        }
+    }
+    
+    fn load_config_from_file() -> AppConfig {
+        // Определяем путь к файлу конфигурации
+        if let Some(data_dir) = dirs::data_dir() {
+            let config_file = data_dir
+                .join("cedar-folder-size-analyzer")
+                .join("config.json");
+            
+            // Загружаем конфигурацию из файла
+            if let Ok(json) = std::fs::read_to_string(&config_file) {
+                if let Ok(config) = serde_json::from_str(&json) {
+                    return config;
+                }
+            }
+        }
+        
+        AppConfig::default()
+    }
+    
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Загружаем конфигурацию из хранилища
+        // Загружаем конфигурацию из файла (новый способ) или из хранилища (старый способ для совместимости)
         let config: AppConfig = if let Some(storage) = cc.storage {
             storage.get_string("config")
                 .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default()
+                .unwrap_or_else(|| Self::load_config_from_file())
         } else {
-            AppConfig::default()
+            Self::load_config_from_file()
         };
         
         let translations = Translations::load(config.language);
@@ -602,10 +641,13 @@ impl eframe::App for CedarApp {
         // Сохраняем последний путь
         self.config.last_path = Some(self.scan_path.clone());
         
-        // Сохраняем конфигурацию
+        // Сохраняем конфигурацию в storage (для совместимости)
         if let Ok(json) = serde_json::to_string(&self.config) {
             storage.set_string("config", json);
         }
+        
+        // Также сохраняем в файл (основной способ)
+        self.save_config_to_file();
     }
     
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -647,6 +689,8 @@ impl eframe::App for CedarApp {
                     }).clicked() {
                         self.config.dark_mode = !self.config.dark_mode;
                         self.update_icons(ctx);
+                        // Принудительно сохраняем настройки в файл
+                        self.save_config_to_file();
                         ui.close_menu();
                     }
                     
@@ -660,6 +704,8 @@ impl eframe::App for CedarApp {
                                 lang.name()
                             ).clicked() {
                                 self.set_language(lang);
+                                // Принудительно сохраняем настройки в файл
+                                self.save_config_to_file();
                                 ui.close_menu();
                             }
                         }
@@ -926,13 +972,6 @@ impl eframe::App for CedarApp {
                                                 egui::Color32::from_rgb(70, 130, 200)
                                             };
                                             
-                                            // Темно-синий цвет для рамки
-                                            let stroke_color = if self.config.dark_mode {
-                                                egui::Color32::from_rgb(30, 60, 120)
-                                            } else {
-                                                egui::Color32::from_rgb(40, 80, 140)
-                                            };
-                                            
                                             // Настраиваем стиль кнопки
                                             let mut button_style = ui.style_mut().clone();
                                             button_style.visuals.widgets.inactive.bg_fill = base_color;
@@ -990,7 +1029,7 @@ impl eframe::App for CedarApp {
                                                     egui::Color32::BLACK
                                                 };
                                                 
-                                                let mut progress = egui::ProgressBar::new(usage_percent)
+                                                let progress = egui::ProgressBar::new(usage_percent)
                                                     .text(egui::RichText::new(format!("{:.1}%", usage_percent * 100.0))
                                                         .color(text_color)
                                                         .size(11.0))
