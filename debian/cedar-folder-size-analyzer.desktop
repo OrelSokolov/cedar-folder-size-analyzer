@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Cedar Folder Size Analyzer
+Name[en]=Cedar Folder Size Analyzer
+Name[ru]=Cedar Folder Size Analyzer
+Comment=Analyze disk space usage with tree structure visualization
+Comment[en]=Analyze disk space usage with tree structure visualization
+Comment[ru]=Анализатор использования дискового пространства
+Exec=cedar-folder-size-analyzer
+Icon=cedar-folder-size-analyzer
+Terminal=false
+Categories=Utility;System;FileManager;
+Keywords=disk;space;analyzer;folder;size;tree;
+StartupNotify=true
+

@@ -30,3 +30,7 @@ debug.pdb
 .cargo/
 .rustup/
 
+# Debian package generated files
+debian/icons/
+target/debian/
+

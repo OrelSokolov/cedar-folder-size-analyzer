@@ -33,3 +33,32 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
+[package.metadata.deb]
+name = "cedar-folder-size-analyzer"
+# version автоматически берется из package.version
+section = "utils"
+priority = "optional"
+# architecture определяется автоматически cargo-deb на основе целевой платформы
+depends = "$auto"
+extended-description = """\
+Cedar Folder Size Analyzer - удобный инструмент для визуализации \
+использования дискового пространства с древовидной структурой. \
+Поддерживает сканирование дисков и папок, отображение размеров файлов \
+и папок, сортировку по размеру, темную и светлую темы, \
+многоязычную поддержку (6 языков).
+"""
+maintainer = "Oleg Orlov <orelcokolov@gmail.com>"
+copyright = "Copyright (C) 2025 Oleg Orlov. Freeware."
+
+assets = [
+    ["target/release/cedar-folder-size-analyzer", "/usr/bin/cedar-folder-size-analyzer", "755"],
+    ["debian/cedar-folder-size-analyzer.desktop", "/usr/share/applications/cedar-folder-size-analyzer.desktop", "644"],
+    ["debian/icons/cedar-16.png", "/usr/share/icons/hicolor/16x16/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-32.png", "/usr/share/icons/hicolor/32x32/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-48.png", "/usr/share/icons/hicolor/48x48/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-64.png", "/usr/share/icons/hicolor/64x64/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-128.png", "/usr/share/icons/hicolor/128x128/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-256.png", "/usr/share/icons/hicolor/256x256/apps/cedar-folder-size-analyzer.png", "644"],
+    ["debian/icons/cedar-scalable.svg", "/usr/share/icons/hicolor/scalable/apps/cedar-folder-size-analyzer.svg", "644"],
+]
+
