@@ -4,7 +4,7 @@
   <img src="src/icons/cedar.svg" alt="Cedar Logo" width="128" height="128">
 </p>
 
-A folder and disk size analyzer for Windows, written in Rust. A convenient tool for visualizing disk space usage with a tree structure.
+A folder and disk size analyzer for Windows and Linux, written in Rust. A convenient tool for visualizing disk space usage with a tree structure.
 
 [🇷🇺 Русская версия / Russian version](README_RU.md)
 
@@ -18,7 +18,7 @@ A folder and disk size analyzer for Windows, written in Rust. A convenient tool 
 - 🌲 Tree view display of directory structure (files and folders)
 - 📏 Display folder and file sizes
 - 🔍 Sort by size (largest to smallest)
-- 🖥️ Support for all available Windows drives
+- 🖥️ Support for all available drives (Windows and Linux)
 - 💾 Display disk size and type (SSD/HDD)
 - ⚡ Adaptive multithreading (SSD - parallel, HDD - single-threaded)
 - ⏹️ Ability to stop scanning at any time
@@ -27,7 +27,7 @@ A folder and disk size analyzer for Windows, written in Rust. A convenient tool 
 - 🌙 Dark and light themes (auto-detect system theme)
 - 🌍 Multilingual support (6 languages: EN, RU, DE, ZH, ES, FR)
 - 💾 Auto-save settings (theme, language, last path)
-- 🗑️ Safe file and folder deletion to Windows Recycle Bin
+- 🗑️ Safe file and folder deletion to Recycle Bin/Trash (Windows and Linux)
 - 📂 Open folders in Explorer
 - 📋 Copy paths to clipboard
 - 🎨 Modern GUI based on egui with Phosphor icons
@@ -47,7 +47,7 @@ A folder and disk size analyzer for Windows, written in Rust. A convenient tool 
 
 **Requirements:**
 - Rust 1.70 or higher
-- Windows 10/11
+- Windows 10/11 or Linux
 
 ```bash
 # Clone the repository

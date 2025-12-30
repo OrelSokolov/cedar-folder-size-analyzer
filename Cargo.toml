@@ -1,10 +1,10 @@
 [package]
 name = "cedar-folder-size-analyzer"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["Oleg Orlov <orelcokolov@gmail.com>"]
 license = "Freeware"
-description = "Cedar Folder Size Analyzer - Disk space analyzer for Windows"
+description = "Cedar Folder Size Analyzer - Cross-platform disk space analyzer"
 
 [dependencies]
 eframe = "0.29"
@@ -25,7 +25,7 @@ dirs = "5.0"
 usvg = "0.44"
 tiny-skia = "0.11"
 
-[build-dependencies]
+[target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
 [profile.release]

@@ -1,15 +1,19 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 use eframe::egui;
 use egui_phosphor::regular;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::Disks;
+
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::MetadataExt;
 
 mod i18n;
 use i18n::{Language, Translations};
@@ -39,36 +43,31 @@ fn load_svg_as_texture(
     // Парсим SVG
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(svg_data, &opt).expect("Failed to parse SVG");
-    
+
     // Получаем размеры SVG
     let svg_size = tree.size();
-    
+
     // Вычисляем масштаб чтобы SVG вписался в нужный размер
     let scale_x = size as f32 / svg_size.width();
     let scale_y = size as f32 / svg_size.height();
     let scale = scale_x.min(scale_y); // Используем минимальный масштаб чтобы сохранить пропорции
-    
+
     // Создаём pixmap для рендеринга
     let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("Failed to create pixmap");
-    
+
     // Создаём трансформацию для масштабирования
     let transform = tiny_skia::Transform::from_scale(scale, scale);
-    
+
     // Рендерим SVG с масштабированием
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    
+
     // Конвертируем в ColorImage для egui
-    let image_buffer = image::RgbaImage::from_raw(
-        size,
-        size,
-        pixmap.data().to_vec(),
-    ).expect("Failed to create image");
-    
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-        [size as usize, size as usize],
-        &image_buffer,
-    );
-    
+    let image_buffer = image::RgbaImage::from_raw(size, size, pixmap.data().to_vec())
+        .expect("Failed to create image");
+
+    let color_image =
+        egui::ColorImage::from_rgba_unmultiplied([size as usize, size as usize], &image_buffer);
+
     ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR)
 }
 
@@ -77,36 +76,36 @@ fn load_icon() -> egui::IconData {
     // Парсим SVG
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(ICON_CEDAR, &opt).expect("Failed to parse SVG icon");
-    
+
     // Размер иконки
     let size = 256u32;
-    
+
     // Получаем размеры SVG
     let svg_size = tree.size();
-    
+
     // Вычисляем масштаб
     let scale_x = size as f32 / svg_size.width();
     let scale_y = size as f32 / svg_size.height();
     let scale = scale_x.min(scale_y);
-    
+
     // Создаём pixmap для рендеринга
     let mut pixmap = tiny_skia::Pixmap::new(size, size).expect("Failed to create pixmap");
-    
+
     // Заполняем прозрачным фоном
     pixmap.fill(tiny_skia::Color::TRANSPARENT);
-    
+
     // Создаём трансформацию для масштабирования и центрирования
     let offset_x = (size as f32 - svg_size.width() * scale) / 2.0;
     let offset_y = (size as f32 - svg_size.height() * scale) / 2.0;
-    let transform = tiny_skia::Transform::from_translate(offset_x, offset_y)
-        .post_scale(scale, scale);
-    
+    let transform =
+        tiny_skia::Transform::from_translate(offset_x, offset_y).post_scale(scale, scale);
+
     // Рендерим SVG
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    
+
     // Конвертируем в RGBA
     let rgba = pixmap.data().to_vec();
-    
+
     egui::IconData {
         rgba,
         width: size,
@@ -117,7 +116,7 @@ fn load_icon() -> egui::IconData {
 fn main() -> Result<(), eframe::Error> {
     // Загружаем иконку приложения
     let icon_data = load_icon();
-    
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
@@ -126,7 +125,7 @@ fn main() -> Result<(), eframe::Error> {
             .with_icon(icon_data),
         ..Default::default()
     };
-    
+
     eframe::run_native(
         "cedar_folder_size_analyzer",
         options,
@@ -135,27 +134,43 @@ fn main() -> Result<(), eframe::Error> {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             cc.egui_ctx.set_fonts(fonts);
-            
+
             // Настройка стиля для увеличения размеров элементов
             let mut style = (*cc.egui_ctx.style()).clone();
-            
+
             // Увеличиваем размер текста
             style.text_styles = [
-                (egui::TextStyle::Small, egui::FontId::new(12.0, egui::FontFamily::Proportional)),
-                (egui::TextStyle::Body, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
-                (egui::TextStyle::Button, egui::FontId::new(16.0, egui::FontFamily::Proportional)),
-                (egui::TextStyle::Heading, egui::FontId::new(20.0, egui::FontFamily::Proportional)),
-                (egui::TextStyle::Monospace, egui::FontId::new(14.0, egui::FontFamily::Monospace)),
-            ].into();
-            
+                (
+                    egui::TextStyle::Small,
+                    egui::FontId::new(12.0, egui::FontFamily::Proportional),
+                ),
+                (
+                    egui::TextStyle::Body,
+                    egui::FontId::new(16.0, egui::FontFamily::Proportional),
+                ),
+                (
+                    egui::TextStyle::Button,
+                    egui::FontId::new(16.0, egui::FontFamily::Proportional),
+                ),
+                (
+                    egui::TextStyle::Heading,
+                    egui::FontId::new(20.0, egui::FontFamily::Proportional),
+                ),
+                (
+                    egui::TextStyle::Monospace,
+                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                ),
+            ]
+            .into();
+
             // Увеличиваем отступы и размеры элементов
             style.spacing.item_spacing = egui::vec2(10.0, 8.0);
             style.spacing.button_padding = egui::vec2(12.0, 8.0);
             style.spacing.indent = 20.0;
             style.spacing.interact_size = egui::vec2(50.0, 24.0);
-            
+
             cc.egui_ctx.set_style(style);
-            
+
             Ok(Box::new(CedarApp::new(cc)))
         }),
     )
@@ -168,7 +183,7 @@ struct DirNode {
     size: u64,
     children: Vec<DirNode>,
     is_expanded: bool,
-    is_file: bool,  // true если это файл, false если папка
+    is_file: bool, // true если это файл, false если папка
 }
 
 impl DirNode {
@@ -283,15 +298,15 @@ impl CedarApp {
         // Определяем путь к файлу конфигурации
         if let Some(data_dir) = dirs::data_dir() {
             let config_dir = data_dir.join("cedar-folder-size-analyzer");
-            
+
             // Создаем директорию, если её нет
             if let Err(e) = std::fs::create_dir_all(&config_dir) {
                 eprintln!("Failed to create config directory: {}", e);
                 return;
             }
-            
+
             let config_file = config_dir.join("config.json");
-            
+
             // Сохраняем конфигурацию в файл
             if let Ok(json) = serde_json::to_string_pretty(&self.config) {
                 if let Err(e) = std::fs::write(&config_file, json) {
@@ -300,14 +315,14 @@ impl CedarApp {
             }
         }
     }
-    
+
     fn load_config_from_file() -> AppConfig {
         // Определяем путь к файлу конфигурации
         if let Some(data_dir) = dirs::data_dir() {
             let config_file = data_dir
                 .join("cedar-folder-size-analyzer")
                 .join("config.json");
-            
+
             // Загружаем конфигурацию из файла
             if let Ok(json) = std::fs::read_to_string(&config_file) {
                 if let Ok(config) = serde_json::from_str(&json) {
@@ -315,57 +330,81 @@ impl CedarApp {
                 }
             }
         }
-        
+
         AppConfig::default()
     }
-    
+
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Загружаем конфигурацию из файла (новый способ) или из хранилища (старый способ для совместимости)
         let config: AppConfig = if let Some(storage) = cc.storage {
-            storage.get_string("config")
+            storage
+                .get_string("config")
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_else(|| Self::load_config_from_file())
         } else {
             Self::load_config_from_file()
         };
-        
+
         let translations = Translations::load(config.language);
-        
+
         let mut drives = Vec::new();
         let disks = Disks::new_with_refreshed_list();
-        
+
         for disk in disks.list() {
             if let Some(path) = disk.mount_point().to_str() {
                 let name = disk.name().to_string_lossy().to_string();
                 drives.push(DriveInfo {
                     path: path.to_string(),
-                    name: if name.is_empty() { path.to_string() } else { name },
+                    name: if name.is_empty() {
+                        path.to_string()
+                    } else {
+                        name
+                    },
                     total_space: disk.total_space(),
                     available_space: disk.available_space(),
                     kind: format!("{:?}", disk.kind()),
                 });
             }
         }
-        
+
         let default_path = config
             .last_path
             .clone()
             .or_else(|| drives.first().map(|d| d.path.clone()))
-            .unwrap_or_else(|| String::from("C:\\"));
-        
+            .unwrap_or_else(|| {
+                #[cfg(windows)]
+                {
+                    String::from("C:\\")
+                }
+                #[cfg(not(windows))]
+                {
+                    String::from("/")
+                }
+            });
+
         // Загружаем SVG иконки как текстуры в зависимости от темы
         let (folder_data, file_data, search_data, stop_data) = if config.dark_mode {
-            (ICON_FOLDER_DARK, ICON_FILE_DARK, ICON_SEARCH_DARK, ICON_STOP_DARK)
+            (
+                ICON_FOLDER_DARK,
+                ICON_FILE_DARK,
+                ICON_SEARCH_DARK,
+                ICON_STOP_DARK,
+            )
         } else {
-            (ICON_FOLDER_LIGHT, ICON_FILE_LIGHT, ICON_SEARCH_LIGHT, ICON_STOP_LIGHT)
+            (
+                ICON_FOLDER_LIGHT,
+                ICON_FILE_LIGHT,
+                ICON_SEARCH_LIGHT,
+                ICON_STOP_LIGHT,
+            )
         };
-        
+
         let icon_folder = load_svg_as_texture(&cc.egui_ctx, folder_data, "icon_folder", 20);
         let icon_file = load_svg_as_texture(&cc.egui_ctx, file_data, "icon_file", 20);
         let icon_search = load_svg_as_texture(&cc.egui_ctx, search_data, "icon_search", 20);
         let icon_stop = load_svg_as_texture(&cc.egui_ctx, stop_data, "icon_stop", 20);
         let icon_cedar = load_svg_as_texture(&cc.egui_ctx, ICON_CEDAR, "icon_cedar", 80);
-        
+
         Self {
             root_node: None,
             selected_path: None,
@@ -392,20 +431,30 @@ impl CedarApp {
             icon_cedar,
         }
     }
-    
+
     fn set_language(&mut self, lang: Language) {
         self.config.language = lang;
         self.translations = Translations::load(lang);
     }
-    
+
     fn update_icons(&mut self, ctx: &egui::Context) {
         // Обновляем иконки при смене темы
         let (folder_data, file_data, search_data, stop_data) = if self.config.dark_mode {
-            (ICON_FOLDER_DARK, ICON_FILE_DARK, ICON_SEARCH_DARK, ICON_STOP_DARK)
+            (
+                ICON_FOLDER_DARK,
+                ICON_FILE_DARK,
+                ICON_SEARCH_DARK,
+                ICON_STOP_DARK,
+            )
         } else {
-            (ICON_FOLDER_LIGHT, ICON_FILE_LIGHT, ICON_SEARCH_LIGHT, ICON_STOP_LIGHT)
+            (
+                ICON_FOLDER_LIGHT,
+                ICON_FILE_LIGHT,
+                ICON_SEARCH_LIGHT,
+                ICON_STOP_LIGHT,
+            )
         };
-        
+
         self.icon_folder = load_svg_as_texture(ctx, folder_data, "icon_folder", 20);
         self.icon_file = load_svg_as_texture(ctx, file_data, "icon_file", 20);
         self.icon_search = load_svg_as_texture(ctx, search_data, "icon_search", 20);
@@ -418,17 +467,17 @@ impl CedarApp {
         fn remove_recursive(node: &mut DirNode, path: &PathBuf) -> bool {
             // Удаляем из детей
             node.children.retain(|child| &child.path != path);
-            
+
             // Рекурсивно проверяем детей
             for child in &mut node.children {
                 if remove_recursive(child, path) {
                     return true;
                 }
             }
-            
+
             false
         }
-        
+
         if let Some(root) = &mut self.root_node {
             // Проверяем, не удаляем ли корневую папку
             if &root.path == path {
@@ -443,22 +492,22 @@ impl CedarApp {
             }
         }
     }
-    
+
     fn start_scan(&mut self, path: String) {
         self.is_scanning = true;
         self.root_node = None;
         self.scan_cancel.store(false, Ordering::Relaxed);
-        
+
         let progress = self.scan_progress.clone();
         let result = self.scan_result.clone();
         let cancel = self.scan_cancel.clone();
-        
+
         // Очищаем предыдущий результат
         *result.lock().unwrap() = None;
-        
+
         // Получаем информацию о диске
         let (disk_size, disk_type, is_ssd) = get_disk_info(&path);
-        
+
         {
             let mut prog = progress.lock().unwrap();
             prog.message = "Starting scan...".to_string();
@@ -474,16 +523,22 @@ impl CedarApp {
                 1
             };
         }
-        
+
         thread::spawn(move || {
-            scan_directory(&path, progress.clone(), result.clone(), cancel.clone(), is_ssd)
+            scan_directory(
+                &path,
+                progress.clone(),
+                result.clone(),
+                cancel.clone(),
+                is_ssd,
+            )
         });
     }
-    
+
     fn stop_scan(&mut self) {
         self.scan_cancel.store(true, Ordering::Relaxed);
         self.is_scanning = false;
-        
+
         let mut prog = self.scan_progress.lock().unwrap();
         prog.message = "Scan cancelled".to_string();
     }
@@ -492,14 +547,14 @@ impl CedarApp {
 fn get_disk_info(path: &str) -> (u64, String, bool) {
     let disks = Disks::new_with_refreshed_list();
     let path_buf = PathBuf::from(path);
-    
+
     // Находим диск, на котором находится путь
     let mut best_match: Option<&sysinfo::Disk> = None;
     let mut best_match_len = 0;
-    
+
     for disk in disks.list() {
         let mount_point = disk.mount_point();
-        
+
         // Проверяем, начинается ли путь с точки монтирования
         if path_buf.starts_with(mount_point) {
             let mount_len = mount_point.as_os_str().len();
@@ -509,14 +564,14 @@ fn get_disk_info(path: &str) -> (u64, String, bool) {
             }
         }
     }
-    
+
     if let Some(disk) = best_match {
         let size = disk.total_space();
         let disk_type = format!("{:?}", disk.kind());
-        
+
         // Определяем, является ли диск SSD
         let is_ssd = matches!(disk.kind(), sysinfo::DiskKind::SSD);
-        
+
         (size, disk_type, is_ssd)
     } else {
         (0, "Unknown".to_string(), false)
@@ -525,6 +580,134 @@ fn get_disk_info(path: &str) -> (u64, String, bool) {
 
 fn get_disk_size(path: &str) -> u64 {
     get_disk_info(path).0
+}
+
+/// Проверяет, является ли путь виртуальной файловой системой (только для Linux)
+#[cfg(target_os = "linux")]
+fn is_virtual_filesystem(path: &Path) -> bool {
+    use std::fs;
+
+    let path_str = path.to_string_lossy();
+
+    // Быстрая проверка по известным путям
+    let path_str_ref: &str = &path_str;
+    if matches!(path_str_ref, "/proc" | "/sys" | "/dev") {
+        return true;
+    }
+
+    if path_str.starts_with("/proc/") || path_str.starts_with("/sys/") {
+        return true;
+    }
+
+    // Специальная обработка для /snap - пропускаем точки монтирования внутри
+    // Snap-пакеты монтируются как точки монтирования, но реальный контент в .snap файлах
+    if path_str.starts_with("/snap/") && path_str != "/snap" {
+        // Проверяем через /proc/mounts, является ли это точкой монтирования
+        if let Ok(content) = fs::read_to_string("/proc/mounts") {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let mount_point = parts[1];
+                    // Если это точка монтирования внутри /snap (но не сам /snap)
+                    if mount_point == path_str {
+                        return true; // Пропускаем все точки монтирования внутри /snap
+                    }
+                }
+            }
+        }
+    }
+
+    // Более точная проверка через /proc/mounts
+    if let Ok(content) = fs::read_to_string("/proc/mounts") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let mount_point = parts[1];
+                let fs_type = parts[2];
+
+                // Точное совпадение или путь внутри точки монтирования
+                if path_str == mount_point || path_str.starts_with(&format!("{}/", mount_point)) {
+                    let virtual_fs_types = [
+                        "proc",
+                        "sysfs",
+                        "devtmpfs",
+                        "tmpfs",
+                        "devpts",
+                        "cgroup",
+                        "cgroup2",
+                        "pstore",
+                        "bpf",
+                        "tracefs",
+                        "debugfs",
+                        "securityfs",
+                        "hugetlbfs",
+                        "mqueue",
+                        "overlay",
+                    ];
+
+                    if virtual_fs_types.contains(&fs_type) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_virtual_filesystem(_path: &Path) -> bool {
+    false
+}
+
+/// Проверяет, является ли путь точкой монтирования другого диска (только для Linux)
+#[cfg(target_os = "linux")]
+fn is_another_disk_mount_point(path: &Path, current_root: &Path) -> bool {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let path_str = path.to_string_lossy();
+    let current_root_str = current_root.to_string_lossy();
+
+    // Нормализуем пути (убираем завершающий слэш для сравнения)
+    let path_normalized = path_str.trim_end_matches('/');
+    let root_normalized = current_root_str.trim_end_matches('/');
+
+    for disk in disks.list() {
+        let mount_point = disk.mount_point();
+        let mount_str = mount_point.to_string_lossy();
+        let mount_normalized = mount_str.trim_end_matches('/');
+
+        // Если это точка монтирования другого диска (не корень текущего сканирования)
+        if mount_normalized == path_normalized && mount_normalized != root_normalized {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_another_disk_mount_point(_path: &Path, _current_root: &Path) -> bool {
+    false
+}
+
+/// Проверяет, является ли путь симлинком (только для Linux)
+/// Все симлинки пропускаются, чтобы избежать двойного подсчёта
+#[cfg(target_os = "linux")]
+fn is_symlink(path: &Path) -> bool {
+    use std::fs;
+
+    // Проверяем, является ли путь симлинком
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        return metadata.file_type().is_symlink();
+    }
+
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_symlink(_path: &Path) -> bool {
+    false
 }
 
 const MAX_VISIBLE_CHILDREN: usize = 200;
@@ -539,17 +722,21 @@ fn render_tree_node_static(
     icon_file: &egui::TextureHandle,
 ) {
     let indent = depth as f32 * 24.0; // Увеличили отступ для лучшей читаемости
-    
+
     ui.horizontal(|ui| {
         ui.add_space(indent);
-        
+
         let has_children = !node.children.is_empty();
-        
+
         // Кнопка раскрытия только для папок с детьми
         if !node.is_file && has_children {
             // Используем иконки phosphor
-            let expand_icon = if node.is_expanded { regular::CARET_DOWN } else { regular::CARET_RIGHT };
-            
+            let expand_icon = if node.is_expanded {
+                regular::CARET_DOWN
+            } else {
+                regular::CARET_RIGHT
+            };
+
             // Обычная кнопка вместо small_button для большего размера
             if ui.button(expand_icon).clicked() {
                 node.is_expanded = !node.is_expanded;
@@ -557,79 +744,89 @@ fn render_tree_node_static(
         } else {
             ui.add_space(24.0);
         }
-        
+
         // Иконка: всегда папка для папок, файл для файлов
-        let icon_texture = if node.is_file { 
-            icon_file
-        } else { 
-            icon_folder
-        };
-        
+        let icon_texture = if node.is_file { icon_file } else { icon_folder };
+
         let size_str = format_size(node.size);
-        
+
         // Отображаем иконку как изображение с фиксированным размером
         ui.add(egui::Image::new(icon_texture).max_size(egui::vec2(16.0, 16.0)));
-        
+
         let label = format!("{} - {}", node.name, size_str);
-        
-        let response = ui.selectable_label(
-            selected_path.as_ref() == Some(&node.path),
-            label,
-        );
-        
+
+        let response = ui.selectable_label(selected_path.as_ref() == Some(&node.path), label);
+
         // Одиночный клик - выбор
         if response.clicked() {
             *selected_path = Some(node.path.clone());
         }
-        
+
         // Двойной клик - раскрытие/свёртывание (только для папок с детьми)
         if !node.is_file && has_children && response.double_clicked() {
             node.is_expanded = !node.is_expanded;
         }
-        
+
         // Контекстное меню (правый клик)
         response.context_menu(|ui| {
-            if ui.button(format!("{} Удалить в корзину", regular::TRASH)).clicked() {
+            if ui
+                .button(format!("{} Удалить в корзину", regular::TRASH))
+                .clicked()
+            {
                 *path_to_delete = Some(node.path.clone());
                 ui.close_menu();
             }
-            
-            if ui.button(format!("{} Открыть в проводнике", regular::FOLDER_OPEN)).clicked() {
+
+            if ui
+                .button(format!("{} Открыть в проводнике", regular::FOLDER_OPEN))
+                .clicked()
+            {
                 if let Err(e) = open::that(&node.path) {
                     eprintln!("Failed to open path: {}", e);
                 }
                 ui.close_menu();
             }
-            
-            if ui.button(format!("{} Копировать путь", regular::COPY)).clicked() {
+
+            if ui
+                .button(format!("{} Копировать путь", regular::COPY))
+                .clicked()
+            {
                 ui.output_mut(|o| o.copied_text = node.path.display().to_string());
                 ui.close_menu();
             }
         });
-        
+
         response.on_hover_text(node.path.display().to_string());
     });
-    
+
     if node.is_expanded {
         let total_children = node.children.len();
-        
+
         // Показываем только первые MAX_VISIBLE_CHILDREN элементов
         for child in node.children.iter_mut().take(MAX_VISIBLE_CHILDREN) {
-            render_tree_node_static(ui, child, depth + 1, selected_path, path_to_delete, icon_folder, icon_file);
+            render_tree_node_static(
+                ui,
+                child,
+                depth + 1,
+                selected_path,
+                path_to_delete,
+                icon_folder,
+                icon_file,
+            );
         }
-        
+
         // Если элементов больше, показываем индикатор
         if total_children > MAX_VISIBLE_CHILDREN {
             let hidden_count = total_children - MAX_VISIBLE_CHILDREN;
             let child_indent = (depth + 1) as f32 * 20.0;
-            
+
             ui.horizontal(|ui| {
                 ui.add_space(child_indent);
                 ui.add_space(20.0); // Вместо стрелки
                 ui.label(
                     egui::RichText::new(format!("... еще {} элементов", hidden_count))
                         .italics()
-                        .color(ui.visuals().weak_text_color())
+                        .color(ui.visuals().weak_text_color()),
                 );
             });
         }
@@ -640,16 +837,16 @@ impl eframe::App for CedarApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // Сохраняем последний путь
         self.config.last_path = Some(self.scan_path.clone());
-        
+
         // Сохраняем конфигурацию в storage (для совместимости)
         if let Ok(json) = serde_json::to_string(&self.config) {
             storage.set_string("config", json);
         }
-        
+
         // Также сохраняем в файл (основной способ)
         self.save_config_to_file();
     }
-    
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Применяем тему
         if self.config.dark_mode {
@@ -657,7 +854,7 @@ impl eframe::App for CedarApp {
         } else {
             ctx.set_visuals(egui::Visuals::light());
         }
-        
+
         // Меню-бар
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -670,39 +867,45 @@ impl eframe::App for CedarApp {
                 let about_text = self.translations.get("about");
                 let current_lang = self.config.language;
                 let is_dark = self.config.dark_mode;
-                
+
                 ui.menu_button(format!("{} {}", regular::LIST, menu_text), |ui| {
                     // Главная страница
-                    if ui.button(format!("{} {}", regular::HOUSE, home_page_text)).clicked() {
+                    if ui
+                        .button(format!("{} {}", regular::HOUSE, home_page_text))
+                        .clicked()
+                    {
                         self.root_node = None;
                         self.selected_path = None;
                         ui.close_menu();
                     }
-                    
+
                     ui.separator();
-                    
+
                     // Выбор темы
-                    if ui.button(if is_dark { 
-                        format!("{} {}", regular::SUN, light_theme_text)
-                    } else { 
-                        format!("{} {}", regular::MOON_STARS, dark_theme_text)
-                    }).clicked() {
+                    if ui
+                        .button(if is_dark {
+                            format!("{} {}", regular::SUN, light_theme_text)
+                        } else {
+                            format!("{} {}", regular::MOON_STARS, dark_theme_text)
+                        })
+                        .clicked()
+                    {
                         self.config.dark_mode = !self.config.dark_mode;
                         self.update_icons(ctx);
                         // Принудительно сохраняем настройки в файл
                         self.save_config_to_file();
                         ui.close_menu();
                     }
-                    
+
                     ui.separator();
-                    
+
                     // Выбор языка
                     ui.menu_button(format!("{} {}", regular::TRANSLATE, language_text), |ui| {
                         for lang in Language::all() {
-                            if ui.selectable_label(
-                                current_lang == lang,
-                                lang.name()
-                            ).clicked() {
+                            if ui
+                                .selectable_label(current_lang == lang, lang.name())
+                                .clicked()
+                            {
                                 self.set_language(lang);
                                 // Принудительно сохраняем настройки в файл
                                 self.save_config_to_file();
@@ -710,20 +913,23 @@ impl eframe::App for CedarApp {
                             }
                         }
                     });
-                    
+
                     ui.separator();
-                    
-                    if ui.button(format!("{} {}", regular::INFO, about_text)).clicked() {
+
+                    if ui
+                        .button(format!("{} {}", regular::INFO, about_text))
+                        .clicked()
+                    {
                         self.show_about_window = true;
                         ui.close_menu();
                     }
                 });
-                
+
                 ui.separator();
                 ui.heading(app_title);
             });
         });
-        
+
         // Копируем все необходимые переводы до использования в замыканиях
         let path_label = self.translations.get("path");
         let browse_label = self.translations.get("browse");
@@ -741,46 +947,51 @@ impl eframe::App for CedarApp {
         let selected_label = self.translations.get("selected");
         let no_selection_label = self.translations.get("no_selection");
         let total_size_label = self.translations.get("total_size");
-        
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(5.0);
-            
+
             ui.horizontal(|ui| {
                 ui.label(&path_label);
-                
+
                 // Находим текущий диск для отображения
-                let current_display = self.available_drives
+                let current_display = self
+                    .available_drives
                     .iter()
                     .find(|d| d.path == self.scan_path)
                     .map(|d| format!("{} ({})", d.path, format_size(d.total_space)))
                     .unwrap_or_else(|| self.scan_path.clone());
-                
+
                 egui::ComboBox::from_label("")
                     .selected_text(&current_display)
                     .show_ui(ui, |ui| {
                         for drive in &self.available_drives {
-                            let label = format!("{} ({}) [{}]", 
-                                drive.path, 
+                            let label = format!(
+                                "{} ({}) [{}]",
+                                drive.path,
                                 format_size(drive.total_space),
                                 drive.kind
                             );
                             ui.selectable_value(&mut self.scan_path, drive.path.clone(), label);
                         }
                     });
-                
+
                 ui.text_edit_singleline(&mut self.scan_path);
-                
-                if ui.button(format!("{} {}", regular::FOLDER_OPEN, &browse_label)).clicked() {
+
+                if ui
+                    .button(format!("{} {}", regular::FOLDER_OPEN, &browse_label))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.scan_path = path.display().to_string();
                     }
                 }
-                
+
                 // Кнопка сканирования с SVG иконкой
                 ui.add_enabled_ui(!self.is_scanning, |ui| {
                     let button = egui::Button::image_and_text(
                         egui::Image::new(&self.icon_search).max_size(egui::vec2(16.0, 16.0)),
-                        &scan_label
+                        &scan_label,
                     )
                     .min_size(egui::vec2(140.0, 0.0));
                     let response = ui.add(button);
@@ -791,12 +1002,12 @@ impl eframe::App for CedarApp {
                         self.start_scan(self.scan_path.clone());
                     }
                 });
-                
+
                 // Кнопка остановки с SVG иконкой
                 ui.add_enabled_ui(self.is_scanning, |ui| {
                     let button = egui::Button::image_and_text(
                         egui::Image::new(&self.icon_stop).max_size(egui::vec2(16.0, 16.0)),
-                        &stop_label
+                        &stop_label,
                     )
                     .min_size(egui::vec2(140.0, 0.0));
                     let response = ui.add(button);
@@ -808,37 +1019,67 @@ impl eframe::App for CedarApp {
                     }
                 });
             });
-            
+
             if self.is_scanning {
                 if let Ok(progress) = self.scan_progress.lock() {
                     ui.separator();
-                    
+
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label(&progress.message);
                     });
-                    
+
                     // Progress details
                     ui.horizontal(|ui| {
-                        ui.label(format!("{} {}: {}", regular::FILE, &files_label, progress.files_scanned));
+                        ui.label(format!(
+                            "{} {}: {}",
+                            regular::FILE,
+                            &files_label,
+                            progress.files_scanned
+                        ));
                         ui.separator();
-                        ui.label(format!("{} {}: {}", regular::FOLDER, &dirs_label, progress.dirs_scanned));
+                        ui.label(format!(
+                            "{} {}: {}",
+                            regular::FOLDER,
+                            &dirs_label,
+                            progress.dirs_scanned
+                        ));
                         ui.separator();
-                        ui.label(format!("{} {}: {}", regular::HARD_DRIVE, &scanned_label, format_size(progress.total_size)));
+                        ui.label(format!(
+                            "{} {}: {}",
+                            regular::HARD_DRIVE,
+                            &scanned_label,
+                            format_size(progress.total_size)
+                        ));
                     });
-                    
+
                     ui.horizontal(|ui| {
                         if progress.disk_size > 0 {
-                            ui.label(format!("{} {}: {}", regular::DATABASE, &disk_label, format_size(progress.disk_size)));
+                            ui.label(format!(
+                                "{} {}: {}",
+                                regular::DATABASE,
+                                &disk_label,
+                                format_size(progress.disk_size)
+                            ));
                             ui.separator();
                         }
                         if !progress.disk_type.is_empty() {
-                            ui.label(format!("{} {}: {}", regular::DISC, &type_label, progress.disk_type));
+                            ui.label(format!(
+                                "{} {}: {}",
+                                regular::DISC,
+                                &type_label,
+                                progress.disk_type
+                            ));
                             ui.separator();
                         }
-                        ui.label(format!("{} {}: {}", regular::CPU, &threads_label, progress.thread_count));
+                        ui.label(format!(
+                            "{} {}: {}",
+                            regular::CPU,
+                            &threads_label,
+                            progress.thread_count
+                        ));
                     });
-                    
+
                     // Current path
                     if !progress.current_path.is_empty() {
                         ui.horizontal(|ui| {
@@ -846,7 +1087,7 @@ impl eframe::App for CedarApp {
                             ui.label(&progress.current_path);
                         });
                     }
-                    
+
                     // Visual progress bar with real percentage
                     let available_width = ui.available_width();
                     let progress_value = if progress.disk_size > 0 {
@@ -854,31 +1095,39 @@ impl eframe::App for CedarApp {
                     } else {
                         0.0
                     };
-                    
+
                     let progress_text = if progress.disk_size > 0 {
                         format!("{:.1}%", progress_value * 100.0)
                     } else {
                         calculating_label.clone()
                     };
-                    
+
                     ui.add(
                         egui::ProgressBar::new(progress_value)
                             .text(progress_text)
-                            .desired_width(available_width)
+                            .desired_width(available_width),
                     );
                 }
             }
-            
+
             ui.add_space(5.0);
         });
-        
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.root_node.is_some() {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         if let Some(root) = &mut self.root_node {
-                            render_tree_node_static(ui, root, 0, &mut self.selected_path, &mut self.path_to_delete, &self.icon_folder, &self.icon_file);
+                            render_tree_node_static(
+                                ui,
+                                root,
+                                0,
+                                &mut self.selected_path,
+                                &mut self.path_to_delete,
+                                &self.icon_folder,
+                                &self.icon_file,
+                            );
                         }
                     });
             } else if !self.is_scanning {
@@ -886,21 +1135,26 @@ impl eframe::App for CedarApp {
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         ui.add_space(20.0);
-                        ui.heading(format!("{} {}", regular::HARD_DRIVE, &available_drives_label));
+                        ui.heading(format!(
+                            "{} {}",
+                            regular::HARD_DRIVE,
+                            &available_drives_label
+                        ));
                         ui.add_space(10.0);
-                        
+
                         // Отображаем диски в виде блоков (карточек) вертикально
                         let drives_clone = self.available_drives.clone();
-                        
+
                         for drive in drives_clone.iter() {
                             // Карточка для диска
-                            let used_space = drive.total_space.saturating_sub(drive.available_space);
+                            let used_space =
+                                drive.total_space.saturating_sub(drive.available_space);
                             let usage_percent = if drive.total_space > 0 {
                                 (used_space as f64 / drive.total_space as f64) as f32
                             } else {
                                 0.0
                             };
-                            
+
                             // Определяем иконку в зависимости от типа диска
                             let disk_icon = if drive.kind.contains("SSD") {
                                 regular::HARD_DRIVES
@@ -909,32 +1163,35 @@ impl eframe::App for CedarApp {
                             } else {
                                 regular::HARD_DRIVE
                             };
-                            
+
                             // Цвета для progressbar
                             let progress_color = if usage_percent > 0.9 {
-                                egui::Color32::from_rgb(136, 0, 21)  // Красный #880015
+                                egui::Color32::from_rgb(136, 0, 21) // Красный #880015
                             } else if usage_percent > 0.75 {
-                                egui::Color32::from_rgb(255, 127, 39)  // Оранжевый #FF7F27
+                                egui::Color32::from_rgb(255, 127, 39) // Оранжевый #FF7F27
                             } else {
                                 if self.config.dark_mode {
-                                    egui::Color32::from_rgb(60, 130, 80)  // Приглушенный зелёный
+                                    egui::Color32::from_rgb(60, 130, 80) // Приглушенный зелёный
                                 } else {
                                     egui::Color32::from_rgb(80, 150, 100)
                                 }
                             };
-                            
+
                             // Рамка для карточки - более компактная
                             egui::Frame::none()
                                 .fill(if self.config.dark_mode {
                                     egui::Color32::from_gray(35)
                                 } else {
-                                    egui::Color32::from_rgb(230, 230, 230)  // #E6E6E6
+                                    egui::Color32::from_rgb(230, 230, 230) // #E6E6E6
                                 })
-                                .stroke(egui::Stroke::new(1.0, if self.config.dark_mode {
-                                    egui::Color32::from_gray(60)
-                                } else {
-                                    egui::Color32::from_gray(220)
-                                }))
+                                .stroke(egui::Stroke::new(
+                                    1.0,
+                                    if self.config.dark_mode {
+                                        egui::Color32::from_gray(60)
+                                    } else {
+                                        egui::Color32::from_gray(220)
+                                    },
+                                ))
                                 .rounding(6.0)
                                 .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                                 .show(ui, |ui| {
@@ -946,152 +1203,232 @@ impl eframe::App for CedarApp {
                                                 ui.label(egui::RichText::new(disk_icon).size(20.0));
                                                 ui.vertical(|ui| {
                                                     ui.spacing_mut().item_spacing.y = 2.0;
-                                                    ui.label(egui::RichText::new(&drive.path).strong().size(16.0));
-                                                    ui.label(egui::RichText::new(&drive.name)
-                                                        .size(11.0)
-                                                        .color(ui.visuals().weak_text_color()));
+                                                    ui.label(
+                                                        egui::RichText::new(&drive.path)
+                                                            .strong()
+                                                            .size(16.0),
+                                                    );
+                                                    ui.label(
+                                                        egui::RichText::new(&drive.name)
+                                                            .size(11.0)
+                                                            .color(ui.visuals().weak_text_color()),
+                                                    );
                                                 });
                                             });
-                                            
+
                                             ui.add_space(4.0);
-                                            
+
                                             // Тип диска
-                                            ui.label(egui::RichText::new(format!("{} {}", regular::DISC, &drive.kind))
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{} {}",
+                                                    regular::DISC,
+                                                    &drive.kind
+                                                ))
                                                 .size(11.0)
-                                                .color(ui.visuals().weak_text_color()));
+                                                .color(ui.visuals().weak_text_color()),
+                                            );
                                         });
-                                        
+
                                         ui.add_space(20.0);
-                                        
+
                                         // ПРАВАЯ ЧАСТЬ - статистика и кнопка
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            // Кнопка сканирования - компактная
-                                            let base_color = if self.config.dark_mode {
-                                                egui::Color32::from_rgb(50, 100, 180)
-                                            } else {
-                                                egui::Color32::from_rgb(70, 130, 200)
-                                            };
-                                            
-                                            // Настраиваем стиль кнопки
-                                            let mut button_style = ui.style_mut().clone();
-                                            button_style.visuals.widgets.inactive.bg_fill = base_color;
-                                            button_style.visuals.widgets.inactive.weak_bg_fill = base_color;
-                                            button_style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-                                            
-                                            // При наведении фон темнее на 20%
-                                            let hovered_color = egui::Color32::from_rgb(
-                                                (base_color.r() as f32 * 0.8) as u8,
-                                                (base_color.g() as f32 * 0.8) as u8,
-                                                (base_color.b() as f32 * 0.8) as u8,
-                                            );
-                                            button_style.visuals.widgets.hovered.bg_fill = hovered_color;
-                                            button_style.visuals.widgets.hovered.weak_bg_fill = hovered_color;
-                                            button_style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-                                            
-                                            // При нажатии еще темнее
-                                            let active_color = egui::Color32::from_rgb(
-                                                (base_color.r() as f32 * 0.7) as u8,
-                                                (base_color.g() as f32 * 0.7) as u8,
-                                                (base_color.b() as f32 * 0.7) as u8,
-                                            );
-                                            button_style.visuals.widgets.active.bg_fill = active_color;
-                                            button_style.visuals.widgets.active.weak_bg_fill = active_color;
-                                            button_style.visuals.widgets.active.bg_stroke = egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
-                                            
-                                            ui.set_style(button_style);
-                                            
-                                            let button = egui::Button::new(
-                                                egui::RichText::new(format!("{} {}", regular::MAGNIFYING_GLASS, &scan_label))
-                                                    .color(egui::Color32::WHITE)
-                                            )
-                                                .min_size(egui::vec2(120.0, 32.0));
-                                            
-                                            let response = ui.add(button);
-                                            if response.hovered() {
-                                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                            }
-                                            if response.clicked() {
-                                                self.scan_path = drive.path.clone();
-                                                self.start_scan(drive.path.clone());
-                                            }
-                                            
-                                            ui.add_space(10.0);
-                                            
-                                            // Статистика и progressbar
-                                            ui.vertical(|ui| {
-                                                ui.spacing_mut().item_spacing.y = 3.0;
-                                                
-                                                // Progress bar с рамкой
-                                                // Цвет текста: белый на красном/оранжевом фоне, черный на зеленом
-                                                let text_color = if usage_percent > 0.75 {
-                                                    egui::Color32::WHITE
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                // Кнопка сканирования - компактная
+                                                let base_color = if self.config.dark_mode {
+                                                    egui::Color32::from_rgb(50, 100, 180)
                                                 } else {
-                                                    egui::Color32::BLACK
+                                                    egui::Color32::from_rgb(70, 130, 200)
                                                 };
-                                                
-                                                let progress = egui::ProgressBar::new(usage_percent)
-                                                    .text(egui::RichText::new(format!("{:.1}%", usage_percent * 100.0))
-                                                        .color(text_color)
-                                                        .size(11.0))
-                                                    .fill(progress_color)
-                                                    .desired_width(200.0);
-                                                
-                                                // Применяем стиль с рамкой
-                                                ui.style_mut().visuals.widgets.inactive.bg_stroke = egui::Stroke::new(
-                                                    1.0,
-                                                    if self.config.dark_mode {
+
+                                                // Настраиваем стиль кнопки
+                                                let mut button_style = ui.style_mut().clone();
+                                                button_style.visuals.widgets.inactive.bg_fill =
+                                                    base_color;
+                                                button_style
+                                                    .visuals
+                                                    .widgets
+                                                    .inactive
+                                                    .weak_bg_fill = base_color;
+                                                button_style.visuals.widgets.inactive.bg_stroke =
+                                                    egui::Stroke::new(
+                                                        0.0,
+                                                        egui::Color32::TRANSPARENT,
+                                                    );
+
+                                                // При наведении фон темнее на 20%
+                                                let hovered_color = egui::Color32::from_rgb(
+                                                    (base_color.r() as f32 * 0.8) as u8,
+                                                    (base_color.g() as f32 * 0.8) as u8,
+                                                    (base_color.b() as f32 * 0.8) as u8,
+                                                );
+                                                button_style.visuals.widgets.hovered.bg_fill =
+                                                    hovered_color;
+                                                button_style.visuals.widgets.hovered.weak_bg_fill =
+                                                    hovered_color;
+                                                button_style.visuals.widgets.hovered.bg_stroke =
+                                                    egui::Stroke::new(
+                                                        0.0,
+                                                        egui::Color32::TRANSPARENT,
+                                                    );
+
+                                                // При нажатии еще темнее
+                                                let active_color = egui::Color32::from_rgb(
+                                                    (base_color.r() as f32 * 0.7) as u8,
+                                                    (base_color.g() as f32 * 0.7) as u8,
+                                                    (base_color.b() as f32 * 0.7) as u8,
+                                                );
+                                                button_style.visuals.widgets.active.bg_fill =
+                                                    active_color;
+                                                button_style.visuals.widgets.active.weak_bg_fill =
+                                                    active_color;
+                                                button_style.visuals.widgets.active.bg_stroke =
+                                                    egui::Stroke::new(
+                                                        0.0,
+                                                        egui::Color32::TRANSPARENT,
+                                                    );
+
+                                                ui.set_style(button_style);
+
+                                                let button = egui::Button::new(
+                                                    egui::RichText::new(format!(
+                                                        "{} {}",
+                                                        regular::MAGNIFYING_GLASS,
+                                                        &scan_label
+                                                    ))
+                                                    .color(egui::Color32::WHITE),
+                                                )
+                                                .min_size(egui::vec2(120.0, 32.0));
+
+                                                let response = ui.add(button);
+                                                if response.hovered() {
+                                                    ui.ctx().set_cursor_icon(
+                                                        egui::CursorIcon::PointingHand,
+                                                    );
+                                                }
+                                                if response.clicked() {
+                                                    self.scan_path = drive.path.clone();
+                                                    self.start_scan(drive.path.clone());
+                                                }
+
+                                                ui.add_space(10.0);
+
+                                                // Статистика и progressbar
+                                                ui.vertical(|ui| {
+                                                    ui.spacing_mut().item_spacing.y = 3.0;
+
+                                                    // Progress bar с рамкой
+                                                    // Цвет текста: белый на красном/оранжевом фоне, черный на зеленом
+                                                    let text_color = if usage_percent > 0.75 {
                                                         egui::Color32::WHITE
                                                     } else {
                                                         egui::Color32::BLACK
-                                                    }
-                                                );
-                                                ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::new(
-                                                    1.0,
-                                                    if self.config.dark_mode {
-                                                        egui::Color32::WHITE
-                                                    } else {
-                                                        egui::Color32::BLACK
-                                                    }
-                                                );
-                                                
-                                                ui.add(progress);
-                                                
-                                                // Информация о размерах - компактно
-                                                ui.horizontal(|ui| {
-                                                    ui.spacing_mut().item_spacing.x = 4.0;
-                                                    ui.label(egui::RichText::new(format_size(used_space))
-                                                        .size(11.0)
-                                                        .strong());
-                                                    ui.label(egui::RichText::new("/")
-                                                        .size(11.0)
-                                                        .color(ui.visuals().weak_text_color()));
-                                                    ui.label(egui::RichText::new(format_size(drive.total_space))
-                                                        .size(11.0)
-                                                        .color(ui.visuals().weak_text_color()));
-                                                    ui.label(egui::RichText::new("•")
-                                                        .size(11.0)
-                                                        .color(ui.visuals().weak_text_color()));
-                                                    ui.label(egui::RichText::new(format!("{} {}", format_size(drive.available_space), self.translations.get("available")))
-                                                        .size(11.0)
-                                                        .color(if self.config.dark_mode {
-                                                            egui::Color32::from_rgb(100, 180, 120)
+                                                    };
+
+                                                    let progress =
+                                                        egui::ProgressBar::new(usage_percent)
+                                                            .text(
+                                                                egui::RichText::new(format!(
+                                                                    "{:.1}%",
+                                                                    usage_percent * 100.0
+                                                                ))
+                                                                .color(text_color)
+                                                                .size(11.0),
+                                                            )
+                                                            .fill(progress_color)
+                                                            .desired_width(200.0);
+
+                                                    // Применяем стиль с рамкой
+                                                    ui.style_mut()
+                                                        .visuals
+                                                        .widgets
+                                                        .inactive
+                                                        .bg_stroke = egui::Stroke::new(
+                                                        1.0,
+                                                        if self.config.dark_mode {
+                                                            egui::Color32::WHITE
                                                         } else {
-                                                            egui::Color32::from_rgb(60, 140, 80)
-                                                        }));
+                                                            egui::Color32::BLACK
+                                                        },
+                                                    );
+                                                    ui.style_mut()
+                                                        .visuals
+                                                        .widgets
+                                                        .active
+                                                        .bg_stroke = egui::Stroke::new(
+                                                        1.0,
+                                                        if self.config.dark_mode {
+                                                            egui::Color32::WHITE
+                                                        } else {
+                                                            egui::Color32::BLACK
+                                                        },
+                                                    );
+
+                                                    ui.add(progress);
+
+                                                    // Информация о размерах - компактно
+                                                    ui.horizontal(|ui| {
+                                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                                        ui.label(
+                                                            egui::RichText::new(format_size(
+                                                                used_space,
+                                                            ))
+                                                            .size(11.0)
+                                                            .strong(),
+                                                        );
+                                                        ui.label(
+                                                            egui::RichText::new("/")
+                                                                .size(11.0)
+                                                                .color(
+                                                                    ui.visuals().weak_text_color(),
+                                                                ),
+                                                        );
+                                                        ui.label(
+                                                            egui::RichText::new(format_size(
+                                                                drive.total_space,
+                                                            ))
+                                                            .size(11.0)
+                                                            .color(ui.visuals().weak_text_color()),
+                                                        );
+                                                        ui.label(
+                                                            egui::RichText::new("•")
+                                                                .size(11.0)
+                                                                .color(
+                                                                    ui.visuals().weak_text_color(),
+                                                                ),
+                                                        );
+                                                        ui.label(
+                                                            egui::RichText::new(format!(
+                                                                "{} {}",
+                                                                format_size(drive.available_space),
+                                                                self.translations.get("available")
+                                                            ))
+                                                            .size(11.0)
+                                                            .color(if self.config.dark_mode {
+                                                                egui::Color32::from_rgb(
+                                                                    100, 180, 120,
+                                                                )
+                                                            } else {
+                                                                egui::Color32::from_rgb(60, 140, 80)
+                                                            }),
+                                                        );
+                                                    });
                                                 });
-                                            });
-                                        });
+                                            },
+                                        );
                                     });
                                 });
-                            
+
                             ui.add_space(8.0);
                         }
-                        
+
                         ui.add_space(20.0);
                     });
             }
         });
-        
+
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.separator();
             ui.horizontal(|ui| {
@@ -1103,18 +1440,19 @@ impl eframe::App for CedarApp {
                 } else {
                     ui.label(&no_selection_label);
                 }
-                
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Анализ производительности
                     if self.scan_speed_mbps > 0.0 {
                         ui.separator();
-                        
+
                         // Типичные скорости SSD для сравнения
                         let typical_ssd_speed = 500.0; // MB/s типичный SATA SSD
                         let nvme_speed = 3500.0; // MB/s NVMe SSD
-                        
-                        let efficiency_percent = (self.scan_speed_mbps / typical_ssd_speed * 100.0).min(100.0);
-                        
+
+                        let efficiency_percent =
+                            (self.scan_speed_mbps / typical_ssd_speed * 100.0).min(100.0);
+
                         let speed_color = if self.scan_speed_mbps > 200.0 {
                             egui::Color32::GREEN
                         } else if self.scan_speed_mbps > 100.0 {
@@ -1122,12 +1460,12 @@ impl eframe::App for CedarApp {
                         } else {
                             egui::Color32::LIGHT_RED
                         };
-                        
+
                         ui.colored_label(
                             speed_color,
-                            format!("⚡ {:.1} MB/s", self.scan_speed_mbps)
+                            format!("⚡ {:.1} MB/s", self.scan_speed_mbps),
                         );
-                        
+
                         // Показываем эффективность
                         ui.label(format!("(~{:.0}% of SATA SSD)", efficiency_percent))
                             .on_hover_text(format!(
@@ -1143,12 +1481,12 @@ impl eframe::App for CedarApp {
                                 self.scan_speed_mbps, typical_ssd_speed, nvme_speed
                             ));
                     }
-                    
+
                     if let Some(duration) = self.last_scan_duration {
                         ui.separator();
                         ui.label(format!("⏱ {:.2}s", duration.as_secs_f64()));
                     }
-                    
+
                     if let Some(root) = &self.root_node {
                         ui.separator();
                         ui.label(format!("{}: {}", &total_size_label, format_size(root.size)));
@@ -1156,7 +1494,7 @@ impl eframe::App for CedarApp {
                 });
             });
         });
-        
+
         // Check if scan is complete
         if self.is_scanning {
             if let Ok(mut result) = self.scan_result.try_lock() {
@@ -1166,18 +1504,22 @@ impl eframe::App for CedarApp {
                             self.is_scanning = false;
                             self.last_scan_size = node.size;
                             self.root_node = Some(node);
-                            
+
                             // Получаем время сканирования из прогресса
                             if let Ok(prog) = self.scan_progress.lock() {
-                                if let Some(duration_str) = prog.message.strip_prefix("Complete in ") {
+                                if let Some(duration_str) =
+                                    prog.message.strip_prefix("Complete in ")
+                                {
                                     // Парсим длительность из сообщения
                                     if let Some(secs_str) = duration_str.strip_suffix("s") {
                                         if let Ok(secs) = secs_str.parse::<f64>() {
-                                            self.last_scan_duration = Some(Duration::from_secs_f64(secs));
-                                            
+                                            self.last_scan_duration =
+                                                Some(Duration::from_secs_f64(secs));
+
                                             // Рассчитываем скорость сканирования
                                             if secs > 0.0 {
-                                                let size_mb = self.last_scan_size as f64 / (1024.0 * 1024.0);
+                                                let size_mb =
+                                                    self.last_scan_size as f64 / (1024.0 * 1024.0);
                                                 self.scan_speed_mbps = size_mb / secs;
                                             }
                                         }
@@ -1207,22 +1549,22 @@ impl eframe::App for CedarApp {
             }
             ctx.request_repaint();
         }
-        
+
         // Проверяем, нужно ли показать диалог удаления
         if self.path_to_delete.is_some() && !self.show_delete_confirm {
             self.show_delete_confirm = true;
         }
-        
+
         // Диалог подтверждения удаления
         if self.show_delete_confirm {
             if let Some(path) = self.path_to_delete.clone() {
                 let path_display = path.display().to_string();
-                
+
                 let mut delete_confirmed = false;
                 let mut cancelled = false;
-                
+
                 let red_color = egui::Color32::from_rgb(198, 61, 53); // #c63d35
-                
+
                 egui::Window::new("⚠ Подтверждение удаления")
                     .collapsible(false)
                     .resizable(false)
@@ -1230,45 +1572,56 @@ impl eframe::App for CedarApp {
                     .show(ctx, |ui| {
                         ui.vertical(|ui| {
                             ui.add_space(10.0);
-                            
+
                             ui.label("Вы действительно хотите удалить в корзину:");
                             ui.add_space(5.0);
                             ui.label(egui::RichText::new(&path_display).strong());
                             ui.add_space(10.0);
-                            
-                            ui.label("⚠ Элемент будет перемещён в корзину Windows.");
+
+                            #[cfg(windows)]
+                            {
+                                ui.label("⚠ Элемент будет перемещён в корзину Windows.");
+                            }
+                            #[cfg(not(windows))]
+                            {
+                                ui.label("⚠ Элемент будет перемещён в корзину.");
+                            }
                             ui.label("Вы сможете восстановить его из корзины.");
-                            
+
                             ui.add_space(15.0);
-                            
+
                             ui.horizontal(|ui| {
                                 // Красная кнопка удаления
                                 let delete_button = egui::Button::new(
-                                    egui::RichText::new(format!("{} Удалить в корзину", regular::TRASH))
-                                        .color(egui::Color32::WHITE)
+                                    egui::RichText::new(format!(
+                                        "{} Удалить в корзину",
+                                        regular::TRASH
+                                    ))
+                                    .color(egui::Color32::WHITE),
                                 )
                                 .fill(red_color);
-                                
+
                                 if ui.add(delete_button).clicked() {
                                     delete_confirmed = true;
                                 }
-                                
+
                                 if ui.button(format!("{} Отмена", regular::X)).clicked() {
                                     cancelled = true;
                                 }
                             });
-                            
+
                             ui.add_space(10.0);
                         });
                     });
-                
+
                 if delete_confirmed {
                     // Выполняем удаление
                     match trash::delete(&path) {
                         Ok(_) => {
                             // Удаляем из дерева
                             self.remove_from_tree(&path);
-                            self.status_message = Some(format!("✓ Удалено в корзину: {}", path_display));
+                            self.status_message =
+                                Some(format!("✓ Удалено в корзину: {}", path_display));
                             self.status_message_time = Some(Instant::now());
                         }
                         Err(e) => {
@@ -1279,14 +1632,14 @@ impl eframe::App for CedarApp {
                     self.show_delete_confirm = false;
                     self.path_to_delete = None;
                 }
-                
+
                 if cancelled {
                     self.show_delete_confirm = false;
                     self.path_to_delete = None;
                 }
             }
         }
-        
+
         // Автоматически скрываем статусное сообщение через 5 секунд
         if let Some(time) = self.status_message_time {
             if time.elapsed().as_secs() > 5 {
@@ -1294,7 +1647,7 @@ impl eframe::App for CedarApp {
                 self.status_message_time = None;
             }
         }
-        
+
         // Окно "О программе"
         if self.show_about_window {
             egui::Window::new("О программе")
@@ -1304,52 +1657,68 @@ impl eframe::App for CedarApp {
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(10.0);
-                        
+
                         // Иконка кедра
                         ui.add(egui::Image::new(&self.icon_cedar).max_size(egui::vec2(80.0, 80.0)));
                         ui.add_space(5.0);
-                        
+
                         ui.heading("Cedar Folder Size Analyzer");
                         ui.add_space(10.0);
-                        
+
                         ui.label("Анализатор использования дискового пространства");
-                        ui.label("для Windows");
+                        #[cfg(windows)]
+                        {
+                            ui.label("для Windows");
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            ui.label("кроссплатформенный");
+                        }
                         ui.add_space(10.0);
-                        
+
                         ui.separator();
                         ui.add_space(10.0);
-                        
-                        ui.label("Версия: 0.1.0");
+
+                        ui.label(format!("Версия: {}", env!("CARGO_PKG_VERSION")));
                         ui.label(format!("{} Язык: Rust", regular::CODE));
                         ui.label(format!("{} GUI: egui + phosphor", regular::PALETTE));
                         ui.add_space(5.0);
-                        
+
                         ui.separator();
                         ui.add_space(10.0);
-                        
+
                         ui.label(format!("{} Возможности:", regular::SPARKLE));
-                        ui.label(format!("  {} Быстрое сканирование дисков и папок", regular::LIGHTNING));
-                        ui.label(format!("  {} Древовидное отображение структуры", regular::TREE_STRUCTURE));
-                        ui.label(format!("  {} Автоопределение типа диска (SSD/HDD)", regular::HARD_DRIVES));
+                        ui.label(format!(
+                            "  {} Быстрое сканирование дисков и папок",
+                            regular::LIGHTNING
+                        ));
+                        ui.label(format!(
+                            "  {} Древовидное отображение структуры",
+                            regular::TREE_STRUCTURE
+                        ));
+                        ui.label(format!(
+                            "  {} Автоопределение типа диска (SSD/HDD)",
+                            regular::HARD_DRIVES
+                        ));
                         ui.label(format!("  {} Адаптивная многопоточность", regular::CPU));
                         ui.label(format!("  {} Анализ скорости сканирования", regular::GAUGE));
                         ui.add_space(10.0);
-                        
+
                         ui.separator();
                         ui.add_space(10.0);
-                        
+
                         ui.horizontal(|ui| {
                             ui.label("Создано с");
                             ui.label(egui::RichText::new(regular::HEART).color(egui::Color32::RED));
                             ui.label("на Rust");
                         });
-                        
+
                         ui.add_space(10.0);
-                        
+
                         if ui.button(format!("{} Закрыть", regular::X)).clicked() {
                             self.show_about_window = false;
                         }
-                        
+
                         ui.add_space(10.0);
                     });
                 });
@@ -1366,14 +1735,14 @@ fn scan_directory(
 ) {
     let start_time = Instant::now();
     let path_buf = PathBuf::from(path);
-    
+
     if !path_buf.exists() {
         let mut prog = progress.lock().unwrap();
         prog.message = "Error: Path does not exist".to_string();
         *result.lock().unwrap() = Some(ScanResult::Error("Path does not exist".to_string()));
         return;
     }
-    
+
     {
         let mut prog = progress.lock().unwrap();
         prog.message = if use_parallel {
@@ -1382,78 +1751,149 @@ fn scan_directory(
             "Scanning (single-threaded mode)...".to_string()
         };
     }
-    
+
     // Счётчики для прогресса (атомарные для многопоточности)
     let file_count = Arc::new(AtomicUsize::new(0));
     let dir_count = Arc::new(AtomicUsize::new(0));
     let total_size = Arc::new(AtomicUsize::new(0));
-    
+
+    // HashSet для отслеживания уже посчитанных inode (для hardlinks на Linux)
+    let seen_inodes: Arc<Mutex<HashSet<u64>>> = Arc::new(Mutex::new(HashSet::new()));
+
     // Однопоточная рекурсивная функция для глубоких уровней
     fn scan_recursive_single(
         path: &Path,
+        root_path: &Path,
         cancel: &Arc<AtomicBool>,
         file_count: &Arc<AtomicUsize>,
         dir_count: &Arc<AtomicUsize>,
         total_size: &Arc<AtomicUsize>,
+        seen_inodes: &Arc<Mutex<HashSet<u64>>>,
     ) -> Option<DirNode> {
         // Проверка отмены
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        
+
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"))
             .to_string();
-        
+
         let mut node = DirNode::new(path.to_path_buf(), name, 0, false);
         let mut dir_size = 0u64;
-        
+
         // Читаем содержимое директории
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
             Err(_) => return Some(node),
         };
-        
+
         let mut children = Vec::new();
-        
+
         for entry in entries {
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
-            
+
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            
+
             // Используем file_type() - не следует символическим ссылкам
             let file_type = match entry.file_type() {
                 Ok(ft) => ft,
                 Err(_) => continue,
             };
-            
+
             if file_type.is_dir() {
+                let entry_path = entry.path();
+
+                // Пропускаем виртуальные ФС (только для Linux)
+                if is_virtual_filesystem(&entry_path) {
+                    continue;
+                }
+
+                // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                if is_symlink(&entry_path) {
+                    continue;
+                }
+
+                // Пропускаем точки монтирования других дисков (только для Linux, только в корне)
+                // Нормализуем пути для сравнения (убираем завершающий слэш)
+                let path_str = path.to_string_lossy();
+                let root_str = root_path.to_string_lossy();
+                let path_normalized = path_str.trim_end_matches('/');
+                let root_normalized = root_str.trim_end_matches('/');
+                if path_normalized == root_normalized {
+                    // Пропускаем точки монтирования других дисков
+                    if is_another_disk_mount_point(&entry_path, root_path) {
+                        continue;
+                    }
+                }
+
                 // Рекурсивно сканируем подпапку
                 if let Some(child_node) = scan_recursive_single(
-                    &entry.path(),
+                    &entry_path,
+                    root_path,
                     cancel,
                     file_count,
                     dir_count,
                     total_size,
+                    seen_inodes,
                 ) {
                     dir_size += child_node.size;
                     children.push(child_node);
                     dir_count.fetch_add(1, Ordering::Relaxed);
                 }
             } else if file_type.is_file() {
+                let entry_path = entry.path();
+
+                // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                if is_symlink(&entry_path) {
+                    continue;
+                }
+
+                // Пропускаем файлы в виртуальных ФС (только для Linux)
+                if is_virtual_filesystem(&entry_path) {
+                    continue;
+                }
+
                 // Добавляем файл как узел дерева
                 if let Ok(metadata) = entry.metadata() {
                     let file_size = metadata.len();
+
+                    // Дополнительная проверка: пропускаем подозрительно большие файлы в виртуальных ФС
+                    #[cfg(target_os = "linux")]
+                    {
+                        if file_size > 1_000_000_000_000 {
+                            // Если файл больше 1TB, проверяем ещё раз
+                            if is_virtual_filesystem(&entry_path) {
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Проверяем hardlinks на Linux
+                    #[cfg(target_os = "linux")]
+                    {
+                        let nlink = metadata.nlink();
+                        if nlink > 1 {
+                            let inode = metadata.ino();
+                            let mut seen = seen_inodes.lock().unwrap();
+                            if seen.contains(&inode) {
+                                // Этот файл уже посчитан через другую hardlink
+                                continue;
+                            }
+                            seen.insert(inode);
+                        }
+                    }
+
                     let file_name = entry.file_name().to_string_lossy().to_string();
-                    let file_node = DirNode::new(entry.path(), file_name, file_size, true);
-                    
+                    let file_node = DirNode::new(entry_path, file_name, file_size, true);
+
                     dir_size += file_size;
                     children.push(file_node);
                     file_count.fetch_add(1, Ordering::Relaxed);
@@ -1461,45 +1901,47 @@ fn scan_directory(
                 }
             }
         }
-        
+
         node.size = dir_size;
         node.children = children;
-        
+
         Some(node)
     }
-    
+
     // Параллельная функция для первого уровня (использует rayon)
     fn scan_recursive_parallel(
         path: &Path,
+        root_path: &Path,
         cancel: &Arc<AtomicBool>,
         file_count: &Arc<AtomicUsize>,
         dir_count: &Arc<AtomicUsize>,
         total_size: &Arc<AtomicUsize>,
+        seen_inodes: &Arc<Mutex<HashSet<u64>>>,
         depth: usize,
     ) -> Option<DirNode> {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        
+
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"))
             .to_string();
-        
+
         let mut node = DirNode::new(path.to_path_buf(), name, 0, false);
-        
+
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
             Err(_) => return Some(node),
         };
-        
+
         // Собираем все записи
         let entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-        
+
         let mut dir_size = 0u64;
         let mut children = Vec::new();
-        
+
         // На первых 2 уровнях используем параллелизм
         if depth < 2 {
             let results: Vec<_> = entries_vec
@@ -1508,23 +1950,79 @@ fn scan_directory(
                     if cancel.load(Ordering::Relaxed) {
                         return None;
                     }
-                    
+
+                    let entry_path = entry.path();
+
+                    // Пропускаем виртуальные ФС (только для Linux)
+                    if is_virtual_filesystem(&entry_path) {
+                        return None;
+                    }
+
+                    // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                    if is_symlink(&entry_path) {
+                        return None;
+                    }
+
+                    // Пропускаем точки монтирования других дисков (только для Linux, только в корне)
+                    // Нормализуем пути для сравнения (убираем завершающий слэш)
+                    let path_str = path.to_string_lossy();
+                    let root_str = root_path.to_string_lossy();
+                    let path_normalized = path_str.trim_end_matches('/');
+                    let root_normalized = root_str.trim_end_matches('/');
+                    if depth == 0 && path_normalized == root_normalized {
+                        // Пропускаем точки монтирования других дисков
+                        if is_another_disk_mount_point(&entry_path, root_path) {
+                            return None;
+                        }
+                    }
+
                     let file_type = entry.file_type().ok()?;
-                    
+
                     if file_type.is_dir() {
                         let child = scan_recursive_parallel(
-                            &entry.path(),
+                            &entry_path,
+                            root_path,
                             cancel,
                             file_count,
                             dir_count,
                             total_size,
+                            seen_inodes,
                             depth + 1,
                         )?;
                         dir_count.fetch_add(1, Ordering::Relaxed);
                         Some((child.size, Some(child)))
                     } else if file_type.is_file() {
+                        // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                        if is_symlink(&entry_path) {
+                            return None;
+                        }
+
                         let metadata = entry.metadata().ok()?;
                         let file_size = metadata.len();
+
+                        // Дополнительная проверка: пропускаем подозрительно большие файлы в виртуальных ФС
+                        #[cfg(target_os = "linux")]
+                        {
+                            if file_size > 1_000_000_000_000 && is_virtual_filesystem(&entry_path) {
+                                return None;
+                            }
+                        }
+
+                        // Проверяем hardlinks на Linux
+                        #[cfg(target_os = "linux")]
+                        {
+                            let nlink = metadata.nlink();
+                            if nlink > 1 {
+                                let inode = metadata.ino();
+                                let mut seen = seen_inodes.lock().unwrap();
+                                if seen.contains(&inode) {
+                                    // Этот файл уже посчитан через другую hardlink
+                                    return None;
+                                }
+                                seen.insert(inode);
+                            }
+                        }
+
                         file_count.fetch_add(1, Ordering::Relaxed);
                         total_size.fetch_add(file_size as usize, Ordering::Relaxed);
                         Some((file_size, None))
@@ -1533,7 +2031,7 @@ fn scan_directory(
                     }
                 })
                 .collect();
-            
+
             for (size, child_opt) in results {
                 dir_size += size;
                 if let Some(child) = child_opt {
@@ -1546,27 +2044,87 @@ fn scan_directory(
                 if cancel.load(Ordering::Relaxed) {
                     break;
                 }
-                
+
+                let entry_path = entry.path();
+
+                // Пропускаем виртуальные ФС (только для Linux)
+                if is_virtual_filesystem(&entry_path) {
+                    continue;
+                }
+
                 let file_type = match entry.file_type() {
                     Ok(ft) => ft,
                     Err(_) => continue,
                 };
-                
+
                 if file_type.is_dir() {
+                    // Пропускаем виртуальные ФС (только для Linux)
+                    if is_virtual_filesystem(&entry_path) {
+                        continue;
+                    }
+
+                    // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                    if is_symlink(&entry_path) {
+                        continue;
+                    }
+
+                    // Пропускаем точки монтирования других дисков (только для Linux, только в корне)
+                    // Нормализуем пути для сравнения
+                    let path_str = path.to_string_lossy();
+                    let root_str = root_path.to_string_lossy();
+                    let path_normalized = path_str.trim_end_matches('/');
+                    let root_normalized = root_str.trim_end_matches('/');
+                    if path_normalized == root_normalized {
+                        if is_another_disk_mount_point(&entry_path, root_path) {
+                            continue;
+                        }
+                    }
+
                     if let Some(child_node) = scan_recursive_single(
-                        &entry.path(),
+                        &entry_path,
+                        root_path,
                         cancel,
                         file_count,
                         dir_count,
                         total_size,
+                        seen_inodes,
                     ) {
                         dir_size += child_node.size;
                         children.push(child_node);
                         dir_count.fetch_add(1, Ordering::Relaxed);
                     }
                 } else if file_type.is_file() {
+                    // Пропускаем симлинки (только для Linux) - чтобы избежать двойного подсчёта
+                    if is_symlink(&entry_path) {
+                        continue;
+                    }
+
                     if let Ok(metadata) = entry.metadata() {
                         let file_size = metadata.len();
+
+                        // Дополнительная проверка: пропускаем подозрительно большие файлы в виртуальных ФС
+                        #[cfg(target_os = "linux")]
+                        {
+                            if file_size > 1_000_000_000_000 && is_virtual_filesystem(&entry_path) {
+                                continue;
+                            }
+                        }
+
+                        // Проверяем hardlinks на Linux
+                        #[cfg(target_os = "linux")]
+                        {
+                            let nlink = metadata.nlink();
+                            if nlink > 1 {
+                                let inode = metadata.ino();
+                                let mut seen = seen_inodes.lock().unwrap();
+                                if seen.contains(&inode) {
+                                    // Этот файл уже посчитан через другую hardlink
+                                    continue;
+                                }
+                                seen.insert(inode);
+                            }
+                        }
+
                         dir_size += file_size;
                         file_count.fetch_add(1, Ordering::Relaxed);
                         total_size.fetch_add(file_size as usize, Ordering::Relaxed);
@@ -1574,13 +2132,13 @@ fn scan_directory(
                 }
             }
         }
-        
+
         node.size = dir_size;
         node.children = children;
-        
+
         Some(node)
     }
-    
+
     // Сортировка после сканирования
     fn sort_tree(node: &mut DirNode) {
         node.children.sort_unstable_by(|a, b| b.size.cmp(&a.size));
@@ -1588,53 +2146,57 @@ fn scan_directory(
             sort_tree(child);
         }
     }
-    
+
     // Поток для обновления прогресса
     let progress_clone = progress.clone();
     let file_count_clone = file_count.clone();
     let dir_count_clone = dir_count.clone();
     let total_size_clone = total_size.clone();
     let cancel_clone = cancel.clone();
-    
+
     let progress_thread = thread::spawn(move || {
         while !cancel_clone.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(200));
-            
+
             let mut prog = progress_clone.lock().unwrap();
             prog.files_scanned = file_count_clone.load(Ordering::Relaxed);
             prog.dirs_scanned = dir_count_clone.load(Ordering::Relaxed);
             prog.total_size = total_size_clone.load(Ordering::Relaxed) as u64;
         }
     });
-    
+
     // Выбираем режим сканирования в зависимости от типа диска
     let root_result = if use_parallel {
         scan_recursive_parallel(
             &path_buf,
+            &path_buf, // root_path для проверки точек монтирования
             &cancel,
             &file_count,
             &dir_count,
             &total_size,
+            &seen_inodes,
             0,
         )
     } else {
         scan_recursive_single(
             &path_buf,
+            &path_buf, // root_path для проверки точек монтирования
             &cancel,
             &file_count,
             &dir_count,
             &total_size,
+            &seen_inodes,
         )
     };
-    
+
     // Останавливаем поток прогресса
     cancel.store(true, Ordering::Relaxed);
     let _ = progress_thread.join();
     cancel.store(false, Ordering::Relaxed);
-    
+
     // Отправляем результат
     let elapsed = start_time.elapsed();
-    
+
     match root_result {
         Some(mut root) => {
             // Обновляем финальную статистику
@@ -1645,15 +2207,15 @@ fn scan_directory(
                 prog.total_size = total_size.load(Ordering::Relaxed) as u64;
                 prog.message = "Sorting...".to_string();
             }
-            
+
             // Сортируем дерево после сканирования
             sort_tree(&mut root);
-            
+
             root.is_expanded = true;
-            
+
             let mut prog = progress.lock().unwrap();
             prog.message = format!("Complete in {:.2}s", elapsed.as_secs_f64());
-            
+
             *result.lock().unwrap() = Some(ScanResult::Complete(root));
         }
         None => {
@@ -1667,7 +2229,7 @@ fn format_size(size: u64) -> String {
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
     const TB: u64 = GB * 1024;
-    
+
     if size >= TB {
         format!("{:.2} TB", size as f64 / TB as f64)
     } else if size >= GB {
@@ -1680,4 +2242,3 @@ fn format_size(size: u64) -> String {
         format!("{} B", size)
     }
 }
-

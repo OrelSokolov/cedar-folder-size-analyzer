@@ -81,7 +81,7 @@ impl Translations {
             Language::Spanish => LANG_ES,
             Language::French => LANG_FR,
         };
-        
+
         match serde_json::from_str(content) {
             Ok(translations) => Self { translations },
             Err(e) => {
@@ -94,7 +94,10 @@ impl Translations {
     fn fallback() -> Self {
         // Minimal English fallback
         let mut translations = HashMap::new();
-        translations.insert("app_title".to_string(), "Cedar Folder Size Analyzer".to_string());
+        translations.insert(
+            "app_title".to_string(),
+            "Cedar Folder Size Analyzer".to_string(),
+        );
         Self { translations }
     }
 
@@ -127,14 +130,18 @@ pub fn detect_system_language() -> Language {
 
 /// Определение системной темы (тёмная/светлая)
 pub fn detect_system_theme() -> bool {
-    // Попытка определить тему Windows
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+
         // Проверяем реестр Windows для темы
         if let Ok(output) = Command::new("reg")
-            .args(&["query", "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "/v", "AppsUseLightTheme"])
+            .args(&[
+                "query",
+                "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                "/v",
+                "AppsUseLightTheme",
+            ])
             .output()
         {
             let output_str = String::from_utf8_lossy(&output.stdout);
@@ -147,8 +154,41 @@ pub fn detect_system_theme() -> bool {
             }
         }
     }
-    
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+
+        // Пытаемся определить тему через gsettings (GNOME)
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
+            .output()
+        {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            if output_str.contains("dark") || output_str.contains("'prefer-dark'") {
+                return true; // Dark mode
+            }
+        }
+
+        // Альтернативный способ через gsettings (старые версии GNOME)
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+        {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            if output_str.to_lowercase().contains("dark") {
+                return true; // Dark mode
+            }
+        }
+
+        // Проверяем переменную окружения (для некоторых DE)
+        if let Ok(theme) = std::env::var("GTK_THEME") {
+            if theme.to_lowercase().contains("dark") {
+                return true;
+            }
+        }
+    }
+
     // По умолчанию светлая тема
     false
 }
-
