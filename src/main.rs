@@ -169,6 +169,8 @@ fn main() -> Result<(), eframe::Error> {
             style.spacing.indent = 20.0;
             style.spacing.interact_size = egui::vec2(50.0, 24.0);
 
+            // Stroke будет синхронизироваться в update() - здесь не трогаем
+
             cc.egui_ctx.set_style(style);
 
             Ok(Box::new(CedarApp::new(cc)))
@@ -849,11 +851,62 @@ impl eframe::App for CedarApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Применяем тему
-        if self.config.dark_mode {
-            ctx.set_visuals(egui::Visuals::dark());
+        let mut visuals = if self.config.dark_mode {
+            egui::Visuals::dark()
         } else {
-            ctx.set_visuals(egui::Visuals::light());
-        }
+            egui::Visuals::light()
+        };
+        
+        // Сохраняем stroke от inactive - он будет одинаковым для всех состояний
+        let inactive_stroke = visuals.widgets.inactive.bg_stroke;
+        
+        // Сохраняем цвета фона для hovered и active (они будут меняться)
+        let hovered_bg_fill = visuals.widgets.hovered.bg_fill;
+        let hovered_weak_bg_fill = visuals.widgets.hovered.weak_bg_fill;
+        let active_bg_fill = visuals.widgets.active.bg_fill;
+        let active_weak_bg_fill = visuals.widgets.active.weak_bg_fill;
+        
+        // Копируем ВСЕ параметры от inactive к hovered и active
+        visuals.widgets.hovered = visuals.widgets.inactive.clone();
+        visuals.widgets.active = visuals.widgets.inactive.clone();
+        
+        // Восстанавливаем stroke от inactive (одинаковый для всех состояний)
+        visuals.widgets.hovered.bg_stroke = inactive_stroke;
+        visuals.widgets.active.bg_stroke = inactive_stroke;
+        
+        // Восстанавливаем только цвета фона для hovered и active (они меняются)
+        visuals.widgets.hovered.bg_fill = hovered_bg_fill;
+        visuals.widgets.hovered.weak_bg_fill = hovered_weak_bg_fill;
+        visuals.widgets.active.bg_fill = active_bg_fill;
+        visuals.widgets.active.weak_bg_fill = active_weak_bg_fill;
+        
+        ctx.set_visuals(visuals);
+        
+        // Дополнительно фиксим в style на случай если что-то перезаписывается
+        ctx.style_mut(|style| {
+            // Сохраняем stroke от inactive - он будет одинаковым для всех состояний
+            let inactive_stroke = style.visuals.widgets.inactive.bg_stroke;
+            
+            // Сохраняем цвета фона для hovered и active (они будут меняться)
+            let hovered_bg_fill = style.visuals.widgets.hovered.bg_fill;
+            let hovered_weak_bg_fill = style.visuals.widgets.hovered.weak_bg_fill;
+            let active_bg_fill = style.visuals.widgets.active.bg_fill;
+            let active_weak_bg_fill = style.visuals.widgets.active.weak_bg_fill;
+            
+            // Копируем ВСЕ параметры от inactive к hovered и active
+            style.visuals.widgets.hovered = style.visuals.widgets.inactive.clone();
+            style.visuals.widgets.active = style.visuals.widgets.inactive.clone();
+            
+            // Восстанавливаем stroke от inactive (одинаковый для всех состояний)
+            style.visuals.widgets.hovered.bg_stroke = inactive_stroke;
+            style.visuals.widgets.active.bg_stroke = inactive_stroke;
+            
+            // Восстанавливаем только цвета фона для hovered и active (они меняются)
+            style.visuals.widgets.hovered.bg_fill = hovered_bg_fill;
+            style.visuals.widgets.hovered.weak_bg_fill = hovered_weak_bg_fill;
+            style.visuals.widgets.active.bg_fill = active_bg_fill;
+            style.visuals.widgets.active.weak_bg_fill = active_weak_bg_fill;
+        });
 
         // Меню-бар
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -1245,6 +1298,10 @@ impl eframe::App for CedarApp {
 
                                                 // Настраиваем стиль кнопки
                                                 let mut button_style = ui.style_mut().clone();
+                                                
+                                                // Сохраняем stroke от inactive - он будет одинаковым для всех состояний
+                                                let inactive_stroke = button_style.visuals.widgets.inactive.bg_stroke;
+                                                
                                                 button_style.visuals.widgets.inactive.bg_fill =
                                                     base_color;
                                                 button_style
@@ -1252,11 +1309,6 @@ impl eframe::App for CedarApp {
                                                     .widgets
                                                     .inactive
                                                     .weak_bg_fill = base_color;
-                                                button_style.visuals.widgets.inactive.bg_stroke =
-                                                    egui::Stroke::new(
-                                                        0.0,
-                                                        egui::Color32::TRANSPARENT,
-                                                    );
 
                                                 // При наведении фон темнее на 20%
                                                 let hovered_color = egui::Color32::from_rgb(
@@ -1268,11 +1320,8 @@ impl eframe::App for CedarApp {
                                                     hovered_color;
                                                 button_style.visuals.widgets.hovered.weak_bg_fill =
                                                     hovered_color;
-                                                button_style.visuals.widgets.hovered.bg_stroke =
-                                                    egui::Stroke::new(
-                                                        0.0,
-                                                        egui::Color32::TRANSPARENT,
-                                                    );
+                                                // Stroke остаётся таким же, как у inactive
+                                                button_style.visuals.widgets.hovered.bg_stroke = inactive_stroke;
 
                                                 // При нажатии еще темнее
                                                 let active_color = egui::Color32::from_rgb(
@@ -1284,11 +1333,8 @@ impl eframe::App for CedarApp {
                                                     active_color;
                                                 button_style.visuals.widgets.active.weak_bg_fill =
                                                     active_color;
-                                                button_style.visuals.widgets.active.bg_stroke =
-                                                    egui::Stroke::new(
-                                                        0.0,
-                                                        egui::Color32::TRANSPARENT,
-                                                    );
+                                                // Stroke остаётся таким же, как у inactive
+                                                button_style.visuals.widgets.active.bg_stroke = inactive_stroke;
 
                                                 ui.set_style(button_style);
 
