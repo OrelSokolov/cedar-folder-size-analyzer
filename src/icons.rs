@@ -19,10 +19,7 @@ fn decode_image(data: &[u8]) -> egui::ColorImage {
         .expect("Failed to decode icon PNG")
         .to_rgba8();
     let (width, height) = img.dimensions();
-    egui::ColorImage::from_rgba_unmultiplied(
-        [width as usize, height as usize],
-        img.as_raw(),
-    )
+    egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], img.as_raw())
 }
 
 /// Иконка приложения для окна (нужны сырые пиксели, а не текстура egui)
@@ -86,11 +83,7 @@ fn theme_icons(dark_mode: bool) -> (&'static [u8], &'static [u8], &'static [u8],
     }
 }
 
-fn load_texture(
-    ctx: &egui::Context,
-    name: &str,
-    data: &[u8],
-) -> egui::TextureHandle {
+fn load_texture(ctx: &egui::Context, name: &str, data: &[u8]) -> egui::TextureHandle {
     let image = decode_image(data);
     ctx.load_texture(name, image, egui::TextureOptions::LINEAR)
 }

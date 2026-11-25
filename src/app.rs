@@ -150,11 +150,8 @@ impl CedarApp {
                 self.last_scan_duration = None;
                 self.last_scan_size = 0;
                 self.scan_speed_mbps = 0.0;
-                self.status_message = Some(format!(
-                    "{}: {}",
-                    self.translations.get("scan_error"),
-                    err
-                ));
+                self.status_message =
+                    Some(format!("{}: {}", self.translations.get("scan_error"), err));
                 self.status_message_time = Some(Instant::now());
                 eprintln!("Scan error: {}", err);
             }
@@ -192,8 +189,7 @@ impl CedarApp {
     fn stop_scan(&mut self) {
         if let Some(scan) = &self.scan {
             scan.cancel.store(true, Ordering::Relaxed);
-            crate::scanner::lock(&scan.progress).message =
-                self.translations.get("scan_cancelled");
+            crate::scanner::lock(&scan.progress).message = self.translations.get("scan_cancelled");
         }
         self.is_scanning = false;
     }
@@ -459,12 +455,16 @@ impl CedarApp {
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "{} {}: {}",
-                            regular::FILE, files_label, progress.files_scanned
+                            regular::FILE,
+                            files_label,
+                            progress.files_scanned
                         ));
                         ui.separator();
                         ui.label(format!(
                             "{} {}: {}",
-                            regular::FOLDER, dirs_label, progress.dirs_scanned
+                            regular::FOLDER,
+                            dirs_label,
+                            progress.dirs_scanned
                         ));
                         ui.separator();
                         ui.label(format!(
@@ -488,13 +488,17 @@ impl CedarApp {
                         if !progress.disk_type.is_empty() {
                             ui.label(format!(
                                 "{} {}: {}",
-                                regular::DISC, type_label, progress.disk_type
+                                regular::DISC,
+                                type_label,
+                                progress.disk_type
                             ));
                             ui.separator();
                         }
                         ui.label(format!(
                             "{} {}: {}",
-                            regular::CPU, threads_label, progress.thread_count
+                            regular::CPU,
+                            threads_label,
+                            progress.thread_count
                         ));
                     });
 
@@ -512,8 +516,7 @@ impl CedarApp {
                     // считаем в f64, чтобы не терять точность на терабайтах
                     let available_width = ui.available_width();
                     let progress_value = if progress.disk_size > 0 {
-                        (progress.total_size as f64 / progress.disk_size as f64).min(1.0)
-                            as f32
+                        (progress.total_size as f64 / progress.disk_size as f64).min(1.0) as f32
                     } else {
                         0.0
                     };
@@ -567,7 +570,8 @@ impl CedarApp {
                         ui.add_space(20.0);
                         ui.heading(format!(
                             "{} {}",
-                            regular::HARD_DRIVE, available_drives_label
+                            regular::HARD_DRIVE,
+                            available_drives_label
                         ));
                         ui.add_space(10.0);
 
@@ -742,8 +746,7 @@ impl CedarApp {
                 Ok(_) => {
                     // Удаляем из дерева
                     self.remove_from_tree(&path);
-                    self.status_message =
-                        Some(format!("{}: {}", deleted_label, path_display));
+                    self.status_message = Some(format!("{}: {}", deleted_label, path_display));
                 }
                 Err(e) => {
                     self.status_message = Some(format!("{}: {}", error_label, e));
@@ -796,9 +799,7 @@ impl CedarApp {
                     ui.add_space(10.0);
 
                     // Иконка кедра
-                    ui.add(
-                        egui::Image::new(&self.icons.cedar).max_size(egui::vec2(80.0, 80.0)),
-                    );
+                    ui.add(egui::Image::new(&self.icons.cedar).max_size(egui::vec2(80.0, 80.0)));
                     ui.add_space(5.0);
 
                     ui.heading("Cedar Folder Size Analyzer");
@@ -819,10 +820,7 @@ impl CedarApp {
                     ui.add_space(10.0);
 
                     ui.label(format!("{} {}", regular::SPARKLE, features));
-                    ui.label(format!(
-                        "  {} {}",
-                        regular::LIGHTNING, feature_scan
-                    ));
+                    ui.label(format!("  {} {}", regular::LIGHTNING, feature_scan));
                     ui.label(format!("  {} {}", regular::TREE_STRUCTURE, feature_tree));
                     ui.label(format!("  {} {}", regular::HARD_DRIVES, feature_detect));
                     ui.label(format!("  {} {}", regular::CPU, feature_multithread));
@@ -883,7 +881,11 @@ fn render_tree_node(
         }
 
         // Иконка: всегда папка для папок, файл для файлов
-        let icon_texture = if node.is_file { &icons.file } else { &icons.folder };
+        let icon_texture = if node.is_file {
+            &icons.file
+        } else {
+            &icons.folder
+        };
 
         let size_str = format_size(node.size);
 
@@ -915,7 +917,11 @@ fn render_tree_node(
             }
 
             if ui
-                .button(format!("{} {}", regular::FOLDER_OPEN, t.get("open_in_explorer")))
+                .button(format!(
+                    "{} {}",
+                    regular::FOLDER_OPEN,
+                    t.get("open_in_explorer")
+                ))
                 .clicked()
             {
                 if let Err(e) = open::that(&node.path) {
@@ -957,9 +963,7 @@ fn render_tree_node(
             let hidden_count = total_children - MAX_VISIBLE_CHILDREN;
             let child_indent = (depth + 1) as f32 * 20.0;
 
-            let hidden_label = t
-                .get("more_items")
-                .replace("%d", &hidden_count.to_string());
+            let hidden_label = t.get("more_items").replace("%d", &hidden_count.to_string());
 
             ui.horizontal(|ui| {
                 ui.add_space(child_indent);
@@ -1101,7 +1105,8 @@ fn render_drive_card(
                     let button = egui::Button::new(
                         egui::RichText::new(format!(
                             "{} {}",
-                            regular::MAGNIFYING_GLASS, scan_label
+                            regular::MAGNIFYING_GLASS,
+                            scan_label
                         ))
                         .color(egui::Color32::WHITE),
                     )
@@ -1140,24 +1145,22 @@ fn render_drive_card(
                             .desired_width(200.0);
 
                         // Применяем стиль с рамкой
-                        ui.style_mut().visuals.widgets.inactive.bg_stroke =
-                            egui::Stroke::new(
-                                1.0,
-                                if dark_mode {
-                                    egui::Color32::WHITE
-                                } else {
-                                    egui::Color32::BLACK
-                                },
-                            );
-                        ui.style_mut().visuals.widgets.active.bg_stroke =
-                            egui::Stroke::new(
-                                1.0,
-                                if dark_mode {
-                                    egui::Color32::WHITE
-                                } else {
-                                    egui::Color32::BLACK
-                                },
-                            );
+                        ui.style_mut().visuals.widgets.inactive.bg_stroke = egui::Stroke::new(
+                            1.0,
+                            if dark_mode {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::BLACK
+                            },
+                        );
+                        ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::new(
+                            1.0,
+                            if dark_mode {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::BLACK
+                            },
+                        );
 
                         ui.add(progress);
 

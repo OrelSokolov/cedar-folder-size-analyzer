@@ -86,7 +86,7 @@ pub fn get_disk_info(path: &str) -> (u64, String, bool) {
 
 /// Снимок информации о точках монтирования, собранный один раз перед
 /// сканированием. Раньше /proc/mounts читался и разбирался для каждого
- /// проверяемого файла, что было основным узким местом на Linux.
+/// проверяемого файла, что было основным узким местом на Linux.
 struct MountSnapshot {
     /// Точки монтирования виртуальных ФС (proc, sysfs, tmpfs, ...)
     virtual_mounts: Vec<PathBuf>,
@@ -115,7 +115,11 @@ impl MountSnapshot {
 
     #[cfg(target_os = "linux")]
     fn linux(scan_root: &Path) -> Self {
-        let mut virtual_mounts = vec![PathBuf::from("/proc"), PathBuf::from("/sys"), PathBuf::from("/dev")];
+        let mut virtual_mounts = vec![
+            PathBuf::from("/proc"),
+            PathBuf::from("/sys"),
+            PathBuf::from("/dev"),
+        ];
         let mut snap_mounts = Vec::new();
 
         if let Ok(content) = std::fs::read_to_string("/proc/mounts") {
@@ -128,9 +132,21 @@ impl MountSnapshot {
                 let fs_type = parts[2];
 
                 const VIRTUAL_FS_TYPES: [&str; 15] = [
-                    "proc", "sysfs", "devtmpfs", "tmpfs", "devpts", "cgroup", "cgroup2",
-                    "pstore", "bpf", "tracefs", "debugfs", "securityfs", "hugetlbfs",
-                    "mqueue", "overlay",
+                    "proc",
+                    "sysfs",
+                    "devtmpfs",
+                    "tmpfs",
+                    "devpts",
+                    "cgroup",
+                    "cgroup2",
+                    "pstore",
+                    "bpf",
+                    "tracefs",
+                    "debugfs",
+                    "securityfs",
+                    "hugetlbfs",
+                    "mqueue",
+                    "overlay",
                 ];
 
                 if VIRTUAL_FS_TYPES.contains(&fs_type) && !virtual_mounts.contains(&mount_point) {
@@ -161,7 +177,9 @@ impl MountSnapshot {
     }
 
     fn is_virtual(&self, path: &Path) -> bool {
-        self.virtual_mounts.iter().any(|mount| path.starts_with(mount))
+        self.virtual_mounts
+            .iter()
+            .any(|mount| path.starts_with(mount))
             || self.snap_mounts.iter().any(|mount| path == mount)
     }
 
@@ -253,7 +271,12 @@ fn process_file_entry(entry: &std::fs::DirEntry, sc: &ScanContext) -> Option<u64
 
 /// Обрабатывает одну запись каталога. Возвращает (размер, узел дерева):
 /// для файлов узел None, для каталогов — дочернее поддерево.
-fn process_entry(entry: &std::fs::DirEntry, sc: &ScanContext, depth: usize, parallel: bool) -> Option<(u64, Option<DirNode>)> {
+fn process_entry(
+    entry: &std::fs::DirEntry,
+    sc: &ScanContext,
+    depth: usize,
+    parallel: bool,
+) -> Option<(u64, Option<DirNode>)> {
     if sc.cancelled() {
         return None;
     }
@@ -435,7 +458,9 @@ fn scan_directory(path: &str, handle: ScanHandle, translations: Translations, us
 /// Блокировка мьютекса, устойчивая к панике другого потока:
 /// отравленный лок всё равно отдаёт данные.
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
@@ -459,11 +484,7 @@ mod tests {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("scan-test")
-            .join(format!(
-                "{}-{}",
-                std::process::id(),
-                tag
-            ));
+            .join(format!("{}-{}", std::process::id(), tag));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create tmp dir");
         dir

@@ -141,7 +141,10 @@ mod tests {
         let removed = root.remove_child(Path::new("/root/a/a2"));
         assert_eq!(removed, 200);
         assert_eq!(root.size, 500, "размер корня должен уменьшиться");
-        assert_eq!(root.children[0].size, 100, "размер /root/a должен уменьшиться");
+        assert_eq!(
+            root.children[0].size, 100,
+            "размер /root/a должен уменьшиться"
+        );
         assert_eq!(root.children[0].children.len(), 1);
 
         // Удаляем целую ветку
