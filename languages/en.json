@@ -28,7 +28,7 @@
   "copy_path": "Copy Path",
   "delete_confirm_title": "⚠ Confirm Deletion",
   "delete_confirm_msg": "Are you sure you want to move to Recycle Bin:",
-  "delete_warning": "⚠ Item will be moved to Windows Recycle Bin.",
+  "delete_warning": "⚠ Item will be moved to the Recycle Bin.",
   "delete_restore": "You can restore it from Recycle Bin.",
   "delete": "Delete to Recycle Bin",
   "cancel": "Cancel",
@@ -38,7 +38,7 @@
   "ok": "OK",
   "about_title": "About",
   "about_description": "Disk usage analyzer for Windows",
-  "version": "Version: 0.1.0",
+  "version": "Version: %d",
   "language_label": "Language: Rust",
   "gui_label": "GUI: egui + phosphor",
   "features": "Features:",
@@ -53,6 +53,13 @@
   "scanning_single": "Scanning (single-threaded mode)...",
   "more_items": "... %d more items",
   "scanning_label": "Scanning",
-  "calculating": "Calculating..."
+  "calculating": "Calculating...",
+  "starting_scan": "Starting scan...",
+  "sorting": "Sorting...",
+  "scan_cancelled": "Scan cancelled",
+  "error_path_not_exist": "Error: path does not exist",
+  "about_description_cross": "Cross-platform disk usage analyzer",
+  "sata_efficiency": "(~%d% of SATA SSD)",
+  "scan_speed_tooltip": "Scan speed: %d MB/s\nTypical SATA SSD: ~500 MB/s\nTypical NVMe SSD: ~3500 MB/s\n\nNote: scan speed is limited by:\n- Metadata reading (not sequential)\n- File system overhead\n- Small file processing\n- CPU processing time",
+  "scan_error": "✗ Scan error"
 }
-

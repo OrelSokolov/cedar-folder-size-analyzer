@@ -28,7 +28,7 @@
   "copy_path": "Copiar ruta",
   "delete_confirm_title": "⚠ Confirmar eliminación",
   "delete_confirm_msg": "¿Está seguro de que desea mover a la Papelera de reciclaje:",
-  "delete_warning": "⚠ El elemento se moverá a la Papelera de reciclaje de Windows.",
+  "delete_warning": "⚠ El elemento se moverá a la Papelera de reciclaje.",
   "delete_restore": "Puede restaurarlo desde la Papelera de reciclaje.",
   "delete": "Eliminar a la Papelera",
   "cancel": "Cancelar",
@@ -38,7 +38,7 @@
   "ok": "OK",
   "about_title": "Acerca de",
   "about_description": "Analizador de uso de disco para Windows",
-  "version": "Versión: 0.1.0",
+  "version": "Versión: %d",
   "language_label": "Lenguaje: Rust",
   "gui_label": "GUI: egui + phosphor",
   "features": "Características:",
@@ -53,6 +53,13 @@
   "scanning_single": "Escaneando (modo de un solo hilo)...",
   "more_items": "... %d elementos más",
   "scanning_label": "Escaneando",
-  "calculating": "Calculando..."
+  "calculating": "Calculando...",
+  "starting_scan": "Iniciando escaneo...",
+  "sorting": "Ordenando...",
+  "scan_cancelled": "Escaneo cancelado",
+  "error_path_not_exist": "Error: la ruta no existe",
+  "about_description_cross": "Analizador de uso de disco multiplataforma",
+  "sata_efficiency": "(~%d% de un SSD SATA)",
+  "scan_speed_tooltip": "Velocidad de escaneo: %d MB/s\nSSD SATA típico: ~500 MB/s\nSSD NVMe típico: ~3500 MB/s\n\nNota: la velocidad de escaneo está limitada por:\n- Lectura de metadatos (no secuencial)\n- Sobrecarga del sistema de archivos\n- Procesamiento de archivos pequeños\n- Tiempo de procesamiento de la CPU",
+  "scan_error": "✗ Error de escaneo"
 }
-

@@ -28,7 +28,7 @@
   "copy_path": "复制路径",
   "delete_confirm_title": "⚠ 确认删除",
   "delete_confirm_msg": "您确定要移动到回收站吗：",
-  "delete_warning": "⚠ 项目将被移动到Windows回收站。",
+  "delete_warning": "⚠ 项目将被移动到回收站。",
   "delete_restore": "您可以从回收站恢复它。",
   "delete": "删除到回收站",
   "cancel": "取消",
@@ -38,7 +38,7 @@
   "ok": "确定",
   "about_title": "关于",
   "about_description": "Windows磁盘使用分析器",
-  "version": "版本：0.1.0",
+  "version": "版本：%d",
   "language_label": "语言：Rust",
   "gui_label": "GUI：egui + phosphor",
   "features": "功能：",
@@ -53,6 +53,13 @@
   "scanning_single": "扫描中（单线程模式）...",
   "more_items": "... 还有 %d 项",
   "scanning_label": "扫描",
-  "calculating": "计算中..."
+  "calculating": "计算中...",
+  "starting_scan": "正在启动扫描...",
+  "sorting": "排序中...",
+  "scan_cancelled": "扫描已取消",
+  "error_path_not_exist": "错误：路径不存在",
+  "about_description_cross": "跨平台磁盘使用分析器",
+  "sata_efficiency": "(约为SATA SSD的%d%)",
+  "scan_speed_tooltip": "扫描速度：%d MB/s\n典型SATA SSD：~500 MB/s\n典型NVMe SSD：~3500 MB/s\n\n注意：扫描速度受以下因素限制：\n- 元数据读取（非顺序）\n- 文件系统开销\n- 小文件处理\n- CPU处理时间",
+  "scan_error": "✗ 扫描错误"
 }
-

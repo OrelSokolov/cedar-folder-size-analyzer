@@ -107,16 +107,6 @@ impl Translations {
             .cloned()
             .unwrap_or_else(|| format!("[{}]", key))
     }
-
-    pub fn get_fmt(&self, key: &str, args: &[&str]) -> String {
-        let template = self.get(key);
-        let mut result = template;
-        for (i, arg) in args.iter().enumerate() {
-            result = result.replace(&format!("%{}", i + 1), arg);
-            result = result.replace("%d", arg);
-        }
-        result
-    }
 }
 
 /// Определение системного языка
@@ -136,7 +126,7 @@ pub fn detect_system_theme() -> bool {
 
         // Проверяем реестр Windows для темы
         if let Ok(output) = Command::new("reg")
-            .args(&[
+            .args([
                 "query",
                 "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                 "/v",
@@ -161,7 +151,7 @@ pub fn detect_system_theme() -> bool {
 
         // Пытаемся определить тему через gsettings (GNOME)
         if let Ok(output) = Command::new("gsettings")
-            .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
+            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
             .output()
         {
             let output_str = String::from_utf8_lossy(&output.stdout);
@@ -172,7 +162,7 @@ pub fn detect_system_theme() -> bool {
 
         // Альтернативный способ через gsettings (старые версии GNOME)
         if let Ok(output) = Command::new("gsettings")
-            .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
             .output()
         {
             let output_str = String::from_utf8_lossy(&output.stdout);

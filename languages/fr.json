@@ -28,7 +28,7 @@
   "copy_path": "Copier le chemin",
   "delete_confirm_title": "⚠ Confirmer la suppression",
   "delete_confirm_msg": "Voulez-vous vraiment déplacer vers la Corbeille:",
-  "delete_warning": "⚠ L'élément sera déplacé vers la Corbeille Windows.",
+  "delete_warning": "⚠ L'élément sera déplacé vers la Corbeille.",
   "delete_restore": "Vous pouvez le restaurer depuis la Corbeille.",
   "delete": "Déplacer vers la Corbeille",
   "cancel": "Annuler",
@@ -38,7 +38,7 @@
   "ok": "OK",
   "about_title": "À propos",
   "about_description": "Analyseur d'utilisation du disque pour Windows",
-  "version": "Version: 0.1.0",
+  "version": "Version : %d",
   "language_label": "Langage: Rust",
   "gui_label": "GUI: egui + phosphor",
   "features": "Fonctionnalités:",
@@ -53,6 +53,13 @@
   "scanning_single": "Scan en cours (mode mono-thread)...",
   "more_items": "... %d éléments de plus",
   "scanning_label": "Scan en cours",
-  "calculating": "Calcul en cours..."
+  "calculating": "Calcul en cours...",
+  "starting_scan": "Démarrage du scan...",
+  "sorting": "Tri...",
+  "scan_cancelled": "Scan annulé",
+  "error_path_not_exist": "Erreur : le chemin n'existe pas",
+  "about_description_cross": "Analyseur d'utilisation du disque multiplateforme",
+  "sata_efficiency": "(~%d% d'un SSD SATA)",
+  "scan_speed_tooltip": "Vitesse de scan : %d MB/s\nSSD SATA typique : ~500 MB/s\nSSD NVMe typique : ~3500 MB/s\n\nRemarque : la vitesse de scan est limitée par :\n- La lecture des métadonnées (non séquentielle)\n- La surcharge du système de fichiers\n- Le traitement des petits fichiers\n- Le temps de traitement CPU",
+  "scan_error": "✗ Erreur de scan"
 }
-

@@ -28,7 +28,7 @@
   "copy_path": "Pfad kopieren",
   "delete_confirm_title": "⚠ Löschen bestätigen",
   "delete_confirm_msg": "Möchten Sie wirklich in den Papierkorb verschieben:",
-  "delete_warning": "⚠ Element wird in den Windows-Papierkorb verschoben.",
+  "delete_warning": "⚠ Element wird in den Papierkorb verschoben.",
   "delete_restore": "Sie können es aus dem Papierkorb wiederherstellen.",
   "delete": "In Papierkorb verschieben",
   "cancel": "Abbrechen",
@@ -38,7 +38,7 @@
   "ok": "OK",
   "about_title": "Über",
   "about_description": "Festplatten-Analysator für Windows",
-  "version": "Version: 0.1.0",
+  "version": "Version: %d",
   "language_label": "Sprache: Rust",
   "gui_label": "GUI: egui + phosphor",
   "features": "Funktionen:",
@@ -53,6 +53,13 @@
   "scanning_single": "Scannen (Einzelthread-Modus)...",
   "more_items": "... %d weitere Elemente",
   "scanning_label": "Scannen",
-  "calculating": "Berechnung läuft..."
+  "calculating": "Berechnung läuft...",
+  "starting_scan": "Scan wird gestartet...",
+  "sorting": "Sortierung...",
+  "scan_cancelled": "Scan abgebrochen",
+  "error_path_not_exist": "Fehler: Pfad existiert nicht",
+  "about_description_cross": "Plattformübergreifender Festplatten-Analysator",
+  "sata_efficiency": "(~%d% der SATA-SSD)",
+  "scan_speed_tooltip": "Scan-Geschwindigkeit: %d MB/s\nTypische SATA-SSD: ~500 MB/s\nTypische NVMe-SSD: ~3500 MB/s\n\nHinweis: Die Scangeschwindigkeit ist begrenzt durch:\n- Metadaten-Lesen (nicht sequenziell)\n- Dateisystem-Overhead\n- Verarbeitung kleiner Dateien\n- CPU-Verarbeitungszeit",
+  "scan_error": "✗ Scan-Fehler"
 }
-
