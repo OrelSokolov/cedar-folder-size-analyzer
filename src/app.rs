@@ -199,6 +199,27 @@ impl CedarApp {
     }
 }
 
+/// Синхронизирует состояния виджетов hovered и active с inactive: рамка
+/// (stroke) и прочие параметры берутся от inactive, остаются только
+/// «свои» цвета фона. Иначе egui рисует разные рамки у разных состояний.
+fn sync_widget_states(visuals: &mut egui::Visuals) {
+    let inactive_stroke = visuals.widgets.inactive.bg_stroke;
+    let hovered_bg_fill = visuals.widgets.hovered.bg_fill;
+    let hovered_weak_bg_fill = visuals.widgets.hovered.weak_bg_fill;
+    let active_bg_fill = visuals.widgets.active.bg_fill;
+    let active_weak_bg_fill = visuals.widgets.active.weak_bg_fill;
+
+    visuals.widgets.hovered = visuals.widgets.inactive;
+    visuals.widgets.active = visuals.widgets.inactive;
+
+    visuals.widgets.hovered.bg_stroke = inactive_stroke;
+    visuals.widgets.active.bg_stroke = inactive_stroke;
+    visuals.widgets.hovered.bg_fill = hovered_bg_fill;
+    visuals.widgets.hovered.weak_bg_fill = hovered_weak_bg_fill;
+    visuals.widgets.active.bg_fill = active_bg_fill;
+    visuals.widgets.active.weak_bg_fill = active_weak_bg_fill;
+}
+
 impl eframe::App for CedarApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // Сохраняем последний путь
@@ -215,11 +236,16 @@ impl eframe::App for CedarApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Применяем тему
-        if self.config.dark_mode {
-            ctx.set_visuals(egui::Visuals::dark());
+        let mut visuals = if self.config.dark_mode {
+            egui::Visuals::dark()
         } else {
-            ctx.set_visuals(egui::Visuals::light());
-        }
+            egui::Visuals::light()
+        };
+        sync_widget_states(&mut visuals);
+        ctx.set_visuals(visuals);
+
+        // Дополнительно фиксим в style на случай, если что-то перезаписывается
+        ctx.style_mut(|style| sync_widget_states(&mut style.visuals));
 
         self.show_menu_bar(ctx);
         self.show_top_panel(ctx);
@@ -1044,10 +1070,11 @@ fn render_drive_card(
 
                     // Настраиваем стиль кнопки
                     let mut button_style = ui.style_mut().clone();
+
+                    // Рамка одинакова для всех состояний кнопки
+                    let inactive_stroke = button_style.visuals.widgets.inactive.bg_stroke;
                     button_style.visuals.widgets.inactive.bg_fill = base_color;
                     button_style.visuals.widgets.inactive.weak_bg_fill = base_color;
-                    button_style.visuals.widgets.inactive.bg_stroke =
-                        egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
 
                     // При наведении фон темнее на 20%
                     let hovered_color = egui::Color32::from_rgb(
@@ -1057,8 +1084,7 @@ fn render_drive_card(
                     );
                     button_style.visuals.widgets.hovered.bg_fill = hovered_color;
                     button_style.visuals.widgets.hovered.weak_bg_fill = hovered_color;
-                    button_style.visuals.widgets.hovered.bg_stroke =
-                        egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+                    button_style.visuals.widgets.hovered.bg_stroke = inactive_stroke;
 
                     // При нажатии еще темнее
                     let active_color = egui::Color32::from_rgb(
@@ -1068,8 +1094,7 @@ fn render_drive_card(
                     );
                     button_style.visuals.widgets.active.bg_fill = active_color;
                     button_style.visuals.widgets.active.weak_bg_fill = active_color;
-                    button_style.visuals.widgets.active.bg_stroke =
-                        egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+                    button_style.visuals.widgets.active.bg_stroke = inactive_stroke;
 
                     ui.set_style(button_style);
 
