@@ -480,10 +480,14 @@ impl CedarApp {
                         });
                     }
 
-                    // Visual progress bar with real percentage
+                    // Visual progress bar with real percentage.
+                    // Сумма логических размеров файлов может превышать объём
+                    // диска (sparse-файлы), поэтому зажимаем на 100%;
+                    // считаем в f64, чтобы не терять точность на терабайтах
                     let available_width = ui.available_width();
                     let progress_value = if progress.disk_size > 0 {
-                        (progress.total_size as f32 / progress.disk_size as f32).min(1.0)
+                        (progress.total_size as f64 / progress.disk_size as f64).min(1.0)
+                            as f32
                     } else {
                         0.0
                     };

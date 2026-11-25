@@ -1,6 +1,7 @@
 use crate::i18n::Translations;
 use crate::model::{DirNode, ScanProgress, ScanResult};
 use rayon::prelude::*;
+#[cfg(target_os = "linux")]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -176,6 +177,7 @@ struct Counters {
     size: AtomicU64,
     /// Шардированный набор inode для дедупликации hardlinks (Linux).
     /// Шарды уменьшают конкуренцию потоков rayon за блокировку.
+    #[cfg(target_os = "linux")]
     inodes: Vec<Mutex<HashSet<u64>>>,
 }
 
@@ -185,16 +187,18 @@ impl Counters {
             files: AtomicUsize::new(0),
             dirs: AtomicUsize::new(0),
             size: AtomicU64::new(0),
+            #[cfg(target_os = "linux")]
             inodes: (0..16).map(|_| Mutex::new(HashSet::new())).collect(),
         }
     }
 }
 
 struct ScanContext {
-    root: PathBuf,
     cancel: Arc<AtomicBool>,
     counters: Arc<Counters>,
     mounts: MountSnapshot,
+    /// Каталог, обрабатываемый прямо сейчас (для отображения в UI)
+    current: Arc<Mutex<String>>,
 }
 
 impl ScanContext {
@@ -210,7 +214,9 @@ impl ScanContext {
 /// не следует по ссылкам, поэтому `is_dir()`/`is_file()` для них ложны
 /// и они отсеиваются веткой else. Отдельный symlink_metadata не нужен.
 fn process_file_entry(entry: &std::fs::DirEntry, sc: &ScanContext) -> Option<u64> {
+    #[cfg(target_os = "linux")]
     let entry_path = entry.path();
+
     let metadata = entry.metadata().ok()?;
     let file_size = metadata.len();
 
@@ -235,6 +241,11 @@ fn process_file_entry(entry: &std::fs::DirEntry, sc: &ScanContext) -> Option<u64
         }
     }
 
+    // Примечание: на Windows hardlinks не дедуплицируются. Стабильного
+    // способа получить file index нет (MetadataExt::file_index unstable),
+    // а открытие хендла ради проверки каждого файла слишком дорого для
+    // сканера. NTFS-hardlinks редки, двойной учёт незначителен.
+
     sc.counters.files.fetch_add(1, Ordering::Relaxed);
     sc.counters.size.fetch_add(file_size, Ordering::Relaxed);
     Some(file_size)
@@ -256,10 +267,11 @@ fn process_entry(entry: &std::fs::DirEntry, sc: &ScanContext, depth: usize, para
     let file_type = entry.file_type().ok()?;
 
     if file_type.is_dir() {
-        // Точки монтирования других дисков пропускаем только в корне скана
-        if sc.root == entry_path.parent().unwrap_or(&sc.root)
-            && sc.mounts.is_other_disk_mount(&entry_path)
-        {
+        // Точки монтирования пропускаем на любом уровне, а не только в
+        // корне: их содержимое будет посчитано при отдельном сканировании.
+        // Это исключает двойной учёт (bind-маунты, subvolumes), из-за
+        // которого сумма могла превысить объём диска.
+        if sc.mounts.is_other_disk_mount(&entry_path) {
             return None;
         }
 
@@ -299,6 +311,9 @@ fn scan_dir(path: &Path, sc: &ScanContext, depth: usize, parallel: bool) -> Opti
         Ok(entries) => entries,
         Err(_) => return Some(node),
     };
+
+    // Обновляем текущий путь для отображения в UI
+    *lock(&sc.current) = path.to_string_lossy().to_string();
 
     let entries: Vec<std::fs::DirEntry> = entries.filter_map(|e| e.ok()).collect();
 
@@ -358,10 +373,10 @@ fn scan_directory(path: &str, handle: ScanHandle, translations: Translations, us
     };
 
     let sc = ScanContext {
-        root: path_buf.clone(),
         cancel: handle.cancel.clone(),
         counters: Arc::new(Counters::new()),
         mounts: MountSnapshot::new(&path_buf),
+        current: Arc::new(Mutex::new(String::new())),
     };
 
     // Поток, перекачивающий счётчики в прогресс для UI
@@ -369,6 +384,7 @@ fn scan_directory(path: &str, handle: ScanHandle, translations: Translations, us
     {
         let progress = handle.progress.clone();
         let counters = sc.counters.clone();
+        let current = sc.current.clone();
         let cancel = handle.cancel.clone();
         let done_flag = done.clone();
         thread::spawn(move || {
@@ -378,6 +394,7 @@ fn scan_directory(path: &str, handle: ScanHandle, translations: Translations, us
                 prog.files_scanned = counters.files.load(Ordering::Relaxed);
                 prog.dirs_scanned = counters.dirs.load(Ordering::Relaxed);
                 prog.total_size = counters.size.load(Ordering::Relaxed);
+                prog.current_path = lock(&current).clone();
             }
         });
     }
@@ -419,4 +436,107 @@ fn scan_directory(path: &str, handle: ScanHandle, translations: Translations, us
 /// отравленный лок всё равно отдаёт данные.
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn make_test_context(root: &Path, cancelled: bool) -> ScanContext {
+        ScanContext {
+            cancel: Arc::new(AtomicBool::new(cancelled)),
+            counters: Arc::new(Counters::new()),
+            mounts: MountSnapshot::new(root),
+            current: Arc::new(Mutex::new(String::new())),
+        }
+    }
+
+    /// Тестовые каталоги нельзя создавать в /tmp: он часто смонтирован как
+    /// tmpfs и корректно отбрасывается сканером как виртуальная ФС.
+    /// Используем target/ внутри проекта (в .gitignore, не tmpfs).
+    fn unique_tmp_dir(tag: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("scan-test")
+            .join(format!(
+                "{}-{}",
+                std::process::id(),
+                tag
+            ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create tmp dir");
+        dir
+    }
+
+    #[test]
+    fn test_scan_dir_files_on_all_levels() {
+        let root = unique_tmp_dir("tree");
+        // root/f0 (10), root/a/fa (20), root/a/b/fb (40)
+        fs::write(root.join("f0.txt"), vec![0u8; 10]).unwrap();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::write(root.join("a/fa.txt"), vec![0u8; 20]).unwrap();
+        fs::write(root.join("a/b/fb.txt"), vec![0u8; 40]).unwrap();
+
+        let sc = make_test_context(&root, false);
+        let node = scan_dir(&root, &sc, 0, true).expect("scan must return root node");
+
+        assert_eq!(node.size, 70, "суммарный размер");
+        assert_eq!(node.children.len(), 2, "f0.txt и a/ в корне");
+
+        let a = node.children.iter().find(|c| c.name == "a").unwrap();
+        assert_eq!(a.size, 60);
+        assert_eq!(
+            a.children.len(),
+            2,
+            "файл fa.txt и папка b должны попасть в дерево"
+        );
+
+        let b = a.children.iter().find(|c| c.name == "b").unwrap();
+        assert_eq!(b.children.len(), 1, "глубокий файл fb.txt в дереве");
+        assert_eq!(b.children[0].name, "fb.txt");
+
+        assert_eq!(sc.counters.files.load(Ordering::Relaxed), 3);
+        assert_eq!(sc.counters.dirs.load(Ordering::Relaxed), 2);
+        assert_eq!(sc.counters.size.load(Ordering::Relaxed), 70);
+        assert!(
+            !lock(&sc.current).is_empty(),
+            "current path должен обновляться"
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_cancelled_scan_returns_none() {
+        let root = unique_tmp_dir("cancel");
+        fs::write(root.join("x.txt"), vec![0u8; 5]).unwrap();
+
+        let sc = make_test_context(&root, true);
+        assert!(scan_dir(&root, &sc, 0, false).is_none());
+        assert_eq!(sc.counters.size.load(Ordering::Relaxed), 0);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_symlinks_are_not_followed() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let root = unique_tmp_dir("symlink");
+            fs::write(root.join("real.txt"), vec![0u8; 30]).unwrap();
+            symlink(root.join("real.txt"), root.join("link.txt")).unwrap();
+
+            let sc = make_test_context(&root, false);
+            let node = scan_dir(&root, &sc, 0, true).unwrap();
+
+            assert_eq!(node.size, 30, "симлинк не должен добавлять размер");
+            assert_eq!(node.children.len(), 1, "симлинк не должен попасть в дерево");
+            assert_eq!(sc.counters.files.load(Ordering::Relaxed), 1);
+
+            fs::remove_dir_all(&root).unwrap();
+        }
+    }
 }
